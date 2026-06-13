@@ -1,15 +1,15 @@
-# Newscrux AI News Push Notification Service
-# Edit --lang= flag and paths to match your setup
+# Newscrux AI News Telegram Notification Service
+# Copy to: ~/.config/systemd/user/newscrux.service
 
 [Unit]
-Description=Newscrux AI News Push Notification Service
+Description=Newscrux AI News Telegram Notification Service
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 WorkingDirectory=%h/newscrux
-ExecStart=/usr/bin/node %h/newscrux/dist/index.js --lang=en
+ExecStart=/usr/bin/node %h/newscrux/dist/index.js --lang=tr
 Restart=on-failure
 RestartSec=30
 StartLimitIntervalSec=300
@@ -26,4 +26,4 @@ ProtectSystem=strict
 ReadWritePaths=%h/newscrux/data
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target

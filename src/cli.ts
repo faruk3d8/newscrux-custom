@@ -18,7 +18,7 @@ function getVersion(): string {
 }
 
 function printHelp(): void {
-  console.log(`Newscrux — AI-powered news aggregator with push notifications
+  console.log(`Newscrux — AI-powered news aggregator with Telegram notifications
 
 Usage: newscrux [options]
 
@@ -29,10 +29,11 @@ Options:
 
 Environment variables (.env):
   OPENROUTER_API_KEY    OpenRouter API key (required)
-  PUSHOVER_USER_KEY     Pushover user key (required)
-  PUSHOVER_APP_TOKEN    Pushover app token (required)
+  TELEGRAM_BOT_TOKEN    Telegram bot token (required)
+  TELEGRAM_CHAT_ID      Telegram chat ID (required)
   OPENROUTER_MODEL      AI model (default: deepseek/deepseek-v3.2-speciale)
-  POLL_INTERVAL_MINUTES Poll interval in minutes (default: 15)
+  Schedule & bot commands are configured in src/telegram-commands.config.ts
+  (default: Istanbul 12:00 and 20:00, commands /durdur /baslat /ara /durum)
 
 Examples:
   newscrux --lang=tr    Start with Turkish summaries

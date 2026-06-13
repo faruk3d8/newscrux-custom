@@ -19,9 +19,14 @@ import {
   removeEntry,
   countByState,
 } from './queue.js';
-import { sendNotification, sendArticleNotification, escapeHtml } from './pushover.js';
+import { sendNotification, sendArticleNotification, escapeHtml, TELEGRAM_SAFE_MESSAGE } from './telegram.js';
 import { parseArgs } from './cli.js';
 import { getLanguagePack } from './i18n.js';
+import { startScheduledPolls, getNextScheduledRunAt, formatScheduledTime } from './scheduler.js';
+import { startTelegramBotListener } from './telegram-bot.js';
+import { registerPollHandler } from './poll-coordinator.js';
+import { isPaused, loadControlState } from './control-state.js';
+import { SCHEDULE_TIMEZONE, SCHEDULE_HOURS, BOT_COMMANDS } from './telegram-commands.config.js';
 import type { PollMetrics } from './types.js';
 
 const log = createLogger('main');
@@ -31,8 +36,8 @@ function validateConfig(): void {
     log.error('OPENROUTER_API_KEY is required. Set it in .env file.');
     process.exit(1);
   }
-  if (!config.pushoverUserKey || !config.pushoverAppToken) {
-    log.error('PUSHOVER_USER_KEY and PUSHOVER_APP_TOKEN are required. Set them in .env file.');
+  if (!config.telegramBotToken || !config.telegramChatId) {
+    log.error('TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are required. Set them in .env file.');
     process.exit(1);
   }
 }
@@ -180,7 +185,7 @@ async function pollAndNotify(): Promise<void> {
         metrics.sent++;
         if (truncated) metrics.truncated++;
       } else {
-        markFailed(entry.id, 'Pushover send failed');
+        markFailed(entry.id, 'Telegram send failed');
         metrics.send_failed++;
       }
 
@@ -201,12 +206,12 @@ async function pollAndNotify(): Promise<void> {
         digestParts.push(`<b>${escapeHtml(title)}</b>\n${escapeHtml(s.what_happened)}`);
       }
 
-      // Pushover 1024 char limit — fit as many papers as possible
+      // Telegram message limit — fit as many papers as possible
       let digestMessage = '';
       let includedCount = 0;
       for (const part of digestParts) {
         const candidate = digestMessage ? digestMessage + '\n\n' + part : part;
-        if (candidate.length > 1000) break; // leave room for header
+        if (candidate.length > TELEGRAM_SAFE_MESSAGE) break;
         digestMessage = candidate;
         includedCount++;
       }
@@ -246,15 +251,6 @@ async function pollAndNotify(): Promise<void> {
   }
 }
 
-function scheduleNextPoll(): void {
-  const intervalMs = config.pollIntervalMinutes * 60 * 1000;
-  log.info(`Next poll in ${config.pollIntervalMinutes} minutes`);
-  setTimeout(async () => {
-    await pollAndNotify();
-    scheduleNextPoll();
-  }, intervalMs);
-}
-
 function setupShutdown(): void {
   const shutdown = (signal: string) => {
     log.info(`Received ${signal}, shutting down...`);
@@ -283,11 +279,28 @@ async function main(): Promise<void> {
   if (startupSent) {
     log.info('Startup notification sent');
   } else {
-    log.error('Failed to send startup notification — check Pushover credentials');
+    log.error('Failed to send startup notification — check Telegram credentials');
   }
 
-  await pollAndNotify();
-  scheduleNextPoll();
+  loadControlState();
+  registerPollHandler(pollAndNotify);
+  startTelegramBotListener();
+
+  const commands = Object.values(BOT_COMMANDS).join(', ');
+  log.info(`Bot commands: ${commands}`);
+  log.info(
+    `Schedule: ${SCHEDULE_HOURS.join(' & ')} (${SCHEDULE_TIMEZONE})` +
+      (isPaused() ? ' — PAUSED' : ''),
+  );
+
+  try {
+    const next = getNextScheduledRunAt(SCHEDULE_TIMEZONE, SCHEDULE_HOURS);
+    log.info(`Next automatic poll: ${formatScheduledTime(next, SCHEDULE_TIMEZONE)}`);
+  } catch {
+    // ignore scheduling preview errors
+  }
+
+  startScheduledPolls();
 }
 
 main().catch((err) => {
