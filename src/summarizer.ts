@@ -1,9 +1,11 @@
 // src/summarizer.ts
 import { OpenRouter } from '@openrouter/sdk';
-import { config, runtimeConfig } from './config.js';
+import { config } from './config.js';
 import { createLogger } from './logger.js';
+import { getContentLanguage } from './control-state.js';
 import { getLanguagePack } from './i18n.js';
 import type { QueueEntry, StructuredSummary, FeedKind } from './types.js';
+import { extractChatUsage, recordTokenUsage } from './token-usage.js';
 
 const log = createLogger('summarizer');
 
@@ -83,9 +85,16 @@ function parseAndValidateSummary(text: string, feedKind: FeedKind): StructuredSu
   }
 }
 
-export async function summarizeEntry(entry: QueueEntry): Promise<StructuredSummary | null> {
+export interface SummarizeEntryOptions {
+  layer?: '3d' | 'default';
+}
+
+export async function summarizeEntry(
+  entry: QueueEntry,
+  options: SummarizeEntryOptions = {},
+): Promise<StructuredSummary | null> {
   const content = entry.enrichedContent || entry.snippet;
-  const pack = getLanguagePack(runtimeConfig.language);
+  const pack = getLanguagePack(getContentLanguage());
   const kindLabel = pack.kindLabels[entry.feedKind];
   const sourceType = KIND_TO_SOURCE_TYPE[entry.feedKind];
   const systemPrompt = pack.summarySystemPrompt(kindLabel, sourceType);
@@ -103,6 +112,14 @@ export async function summarizeEntry(entry: QueueEntry): Promise<StructuredSumma
           { role: 'user', content: userContent },
         ],
       });
+
+      const usage = extractChatUsage(result);
+      if (usage) {
+        recordTokenUsage('summarize', config.openrouterModel, usage, {
+          entryId: entry.id,
+          ...(options.layer ? { layer: options.layer } : {}),
+        });
+      }
 
       const text = extractResponseText(result);
       const summary = parseAndValidateSummary(text, entry.feedKind);

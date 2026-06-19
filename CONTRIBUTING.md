@@ -1,31 +1,26 @@
-# Contributing to Newscrux
+# Contributing
 
-Thank you for your interest in contributing!
+Thank you for improving Newscrux-Custom.
 
-## How to Contribute
+## Before you start
 
-1. **Fork** the repository
-2. **Create** a feature branch: `git checkout -b feat/my-feature`
-3. **Make** your changes
-4. **Ensure** `npm run build` passes with zero errors
-5. **Submit** a Pull Request
+1. Fork the repository on GitHub.
+2. Clone your fork and create a branch.
+3. Copy `.env.example` to `.env` — **never commit real API keys or Telegram tokens**.
+4. Run `npm run build` and `npm run test:security` before opening a PR.
 
-## Guidelines
+## Code style
 
-- Follow the existing code style and patterns
-- Keep files focused — one clear responsibility per file
-- All code, comments, and documentation in English
-- Test your changes with `npm run dev` before submitting
+- TypeScript strict mode; ESM imports with `.js` extensions in `src/`.
+- Avoid circular imports between config modules (`threed.config.ts` must not import `telegram-commands.config.ts` or `control-state.ts`).
+- Use `safeHttpFetch` for any new outbound HTTP to RSS/article URLs.
 
-## Adding a New Language
+## Reporting issues
 
-To add a new language to the notification system:
+Use [GitHub Issues](https://github.com/faruk3d8/newscrux-custom/issues) on **your fork** or the repo you cloned from. Do not paste tokens, chat IDs, or `.env` contents in issues.
 
-1. Add a new `LanguagePack` entry in `src/i18n.ts`
-2. Add the language code to the `SupportedLanguage` type
-3. Add it to the `SUPPORTED_LANGUAGES` array
-4. Test with `npm run dev -- --lang=<your-code>`
+## Pull requests
 
-## Reporting Issues
-
-Please use [GitHub Issues](https://github.com/alicankiraz1/newscrux/issues) to report bugs or suggest features.
+- One logical change per PR when possible.
+- Update `.env.example` and README if you add configuration.
+- Mention security impact if you touch fetching, Telegram auth, or file paths under `data/`.

@@ -2,7 +2,7 @@
 # Raspberry Pi: systemd user servisi kurulumu (SSH kapalıyken de çalışır)
 set -euo pipefail
 
-REPO_DIR="${HOME}/newscrux"
+REPO_DIR="${HOME}/newscrux-custom"
 SERVICE_NAME="newscrux.service"
 USER_UNIT_DIR="${HOME}/.config/systemd/user"
 
@@ -16,8 +16,9 @@ if [[ ! -f "${REPO_DIR}/dist/index.js" ]]; then
   exit 1
 fi
 
-mkdir -p "${USER_UNIT_DIR}"
+mkdir -p "${USER_UNIT_DIR}" "${REPO_DIR}/data"
 cp "${REPO_DIR}/${SERVICE_NAME}" "${USER_UNIT_DIR}/"
+chmod 600 "${USER_UNIT_DIR}/${SERVICE_NAME}" 2>/dev/null || true
 
 if [[ -f "${REPO_DIR}/.env" ]]; then
   chmod 600 "${REPO_DIR}/.env"
@@ -34,5 +35,6 @@ loginctl enable-linger "$(whoami)"
 echo ""
 echo "Kurulum tamam."
 echo "  Durum:  systemctl --user status ${SERVICE_NAME}"
-echo "  Log:    journalctl --user -u ${SERVICE_NAME} -f"
+echo "  Log:    tail -f ${REPO_DIR}/data/service.log"
+echo "  Teşhis: ${REPO_DIR}/scripts/diagnose-telegram.sh"
 echo "  Yeniden başlat: systemctl --user restart ${SERVICE_NAME}"

@@ -1,29 +1,32 @@
-# Newscrux AI News Telegram Notification Service
+# Newscrux-Custom AI News Telegram Notification Service
 # Copy to: ~/.config/systemd/user/newscrux.service
 
 [Unit]
-Description=Newscrux AI News Telegram Notification Service
+Description=Newscrux-Custom AI News Telegram Service
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/newscrux
-ExecStart=/usr/bin/node %h/newscrux/dist/index.js --lang=tr
+WorkingDirectory=%h/newscrux-custom
+ExecStartPre=/bin/mkdir -p %h/newscrux-custom/data
+ExecStart=/usr/bin/node %h/newscrux-custom/dist/index.js
 Restart=on-failure
 RestartSec=30
 StartLimitIntervalSec=300
 StartLimitBurst=5
 
-EnvironmentFile=%h/newscrux/.env
+EnvironmentFile=-%h/newscrux-custom/.env
 
-StandardOutput=journal
-StandardError=journal
-SyslogIdentifier=newscrux
+# Persist stdout/stderr when journal is unavailable
+StandardOutput=append:%h/newscrux-custom/data/service.log
+StandardError=append:%h/newscrux-custom/data/service.log
+SyslogIdentifier=newscrux-custom
 
 NoNewPrivileges=true
-ProtectSystem=strict
-ReadWritePaths=%h/newscrux/data
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=%h/newscrux-custom/data
 
 [Install]
 WantedBy=default.target

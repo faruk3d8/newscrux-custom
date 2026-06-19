@@ -1,36 +1,37 @@
 {
-  "name": "newscrux",
-  "version": "2.0.0",
-  "description": "AI-powered news aggregator with structured multilingual summaries and push notifications",
-  "author": "Alican Kiraz",
+  "name": "newscrux-custom",
+  "version": "1.0.0",
+  "description": "AI news aggregator with Telegram bot control, scheduled polls, optional 3D layer, and multilingual summaries",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/alicankiraz1/newscrux"
+    "url": "https://github.com/faruk3d8/newscrux-custom.git"
   },
-  "homepage": "https://github.com/alicankiraz1/newscrux#readme",
+  "homepage": "https://github.com/faruk3d8/newscrux-custom#readme",
   "bugs": {
-    "url": "https://github.com/alicankiraz1/newscrux/issues"
+    "url": "https://github.com/faruk3d8/newscrux-custom/issues"
   },
   "keywords": [
     "ai",
     "news",
     "rss",
-    "pushover",
+    "telegram",
     "summarizer",
     "multilingual",
     "raspberry-pi",
     "typescript",
-    "deepseek"
+    "deepseek",
+    "openrouter"
   ],
   "bin": {
     "newscrux": "./dist/index.js"
   },
   "type": "module",
   "scripts": {
-    "build": "tsc",
+    "build": "node scripts/generate-build-info.mjs && tsc",
     "start": "node dist/index.js",
-    "dev": "tsx src/index.ts"
+    "dev": "tsx src/index.ts",
+    "test:security": "npm run build && node scripts/test-url-security.mjs"
   },
   "dependencies": {
     "@openrouter/sdk": "^0.1.0",

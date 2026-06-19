@@ -1,8 +1,9 @@
 // src/scheduler.ts
 import { createLogger } from './logger.js';
-import { isPaused } from './control-state.js';
+import { isPaused, isThreeDNewsEnabled } from './control-state.js';
 import { runPollSafely } from './poll-coordinator.js';
 import { SCHEDULE_TIMEZONE, SCHEDULE_HOURS } from './telegram-commands.config.js';
+import { THREED_SCHEDULE_HOUR } from './threed.config.js';
 
 const log = createLogger('scheduler');
 
@@ -113,10 +114,16 @@ export function startScheduledPolls(): void {
     );
 
     setTimeout(async () => {
+      const runHour = getZonedParts(new Date(), timeZone).hour;
+
       if (isPaused()) {
         log.info('Scheduled poll skipped — system is paused (use bot start command)');
       } else {
         await runPollSafely({ manual: false });
+        if (runHour === THREED_SCHEDULE_HOUR && isThreeDNewsEnabled()) {
+          log.info('Running scheduled 3D news layer after general poll');
+          await runPollSafely({ manual: false, layer: '3d' });
+        }
       }
       scheduleNext();
     }, delayMs);

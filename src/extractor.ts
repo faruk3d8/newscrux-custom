@@ -2,6 +2,7 @@
 import * as cheerio from 'cheerio';
 import { config } from './config.js';
 import { createLogger } from './logger.js';
+import { isSafeHttpUrl, safeHttpFetch } from './url-security.js';
 import type { QueueEntry } from './types.js';
 
 const log = createLogger('extractor');
@@ -32,6 +33,11 @@ function recordDomainFetch(domain: string): void {
 }
 
 async function scrapeArticle(url: string): Promise<string | null> {
+  if (!isSafeHttpUrl(url)) {
+    log.warn(`Blocked unsafe scrape URL: ${url}`);
+    return null;
+  }
+
   const domain = getDomain(url);
   if (!domain) return null;
 
@@ -41,11 +47,11 @@ async function scrapeArticle(url: string): Promise<string | null> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), config.scrapingTimeoutMs);
 
-    const response = await fetch(url, {
+    const response = await safeHttpFetch(url, {
       signal: controller.signal,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; Newscrux/2.0; +https://github.com/alicankiraz1/newscrux)',
-        'Accept': 'text/html',
+        'User-Agent': 'Mozilla/5.0 (compatible; Newscrux-Custom/2.0)',
+        Accept: 'text/html',
       },
     });
 
@@ -109,10 +115,26 @@ function extractTextFromHtml(html: string): string | null {
   return text.slice(0, config.enrichedContentMaxLength);
 }
 
-export async function enrichEntry(entry: QueueEntry): Promise<{ enrichedContent: string; wasScraped: boolean }> {
+export interface EnrichOptions {
+  skipScraping?: boolean;
+}
+
+export async function enrichEntry(
+  entry: QueueEntry,
+  options: EnrichOptions = {},
+): Promise<{ enrichedContent: string; wasScraped: boolean }> {
   // arXiv: abstract is already complete in RSS
   const isArxiv = entry.feedName.startsWith(config.arxivFeedPrefix);
   if (isArxiv) {
+    return { enrichedContent: entry.snippet, wasScraped: false };
+  }
+
+  if (options.skipScraping) {
+    return { enrichedContent: entry.snippet, wasScraped: false };
+  }
+
+  if (entry.link && !isSafeHttpUrl(entry.link)) {
+    log.warn(`Blocked unsafe article link, using snippet only: ${entry.link}`);
     return { enrichedContent: entry.snippet, wasScraped: false };
   }
 

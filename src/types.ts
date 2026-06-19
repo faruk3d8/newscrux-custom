@@ -82,6 +82,10 @@ export interface PollMetrics {
   truncated: number;
   queue_pending: number;
   queue_failed: number;
+  tokens_prompt: number;
+  tokens_completion: number;
+  tokens_total: number;
+  tokens_calls: number;
 }
 
 // --- Legacy (kept for migration compatibility) ---

@@ -1,0 +1,11 @@
+Newscrux-Custom
+Copyright (c) 2026 Faruk (https://github.com/faruk3d8)
+
+This project is a fork of newscrux:
+  https://github.com/alicankiraz1/newscrux
+Copyright (c) 2026 Alican Kiraz
+
+Fork changes include Telegram notifications, scheduled polling, bot commands,
+optional 3D/CAD news layer, SSRF-hardened fetching, and Raspberry Pi deployment tooling.
+
+The original work is licensed under the MIT License. See LICENSE for the full text.

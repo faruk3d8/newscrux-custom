@@ -1,21 +1,38 @@
-// src/relevance.ts
+// src/relevance-3d.ts — 3D mesh / CAD / NeRF / Gaussian splatting ilgililik filtresi
+
 import { OpenRouter } from '@openrouter/sdk';
 import { config } from './config.js';
 import { createLogger } from './logger.js';
 import type { QueueEntry } from './types.js';
 import { extractChatUsage, recordTokenUsage } from './token-usage.js';
+import { THREED_RELEVANCE_THRESHOLD } from './threed.config.js';
+import type { RelevanceResult } from './relevance.js';
 
-const log = createLogger('relevance');
+const log = createLogger('relevance-3d');
 
 const openrouter = new OpenRouter({
   apiKey: config.openrouterApiKey,
 });
 
-const RELEVANCE_PROMPT = `Sen bir AI/ML haber filtresisin.
+const RELEVANCE_3D_PROMPT = `Sen bir 3D AI / mesh / CAD haber filtresisin.
 Sana makale başlıkları ve açıklamaları verilecek.
 Her makale için 1-10 arası bir "ilgililik puanı" ver.
-Puanlama kriteri: makale yapay zeka, makine öğrenmesi, derin öğrenme, LLM, NLP, bilgisayarlı görü, robotik, AI donanımı/çipleri veya bu alanların doğrudan uygulamalarıyla ilgiliyse yüksek puan ver.
-Genel teknoloji, iklim, biyoteknoloji, uzay, politika gibi AI ile doğrudan ilgisi olmayan konulara düşük puan ver.
+
+Yüksek puan (7-10) ver:
+- 3D mesh / shape / scene generation (text-to-3D, image-to-3D)
+- NeRF, Gaussian splatting, radiance fields, point clouds
+- CAD / CadQuery / text-to-CAD / image-to-CAD
+- 3D reconstruction, digital twins, volumetric rendering
+- NVIDIA Omniverse, RTX, neural rendering, mesh tools
+- Açık kaynak 3D modeller (TRELLIS, Hunyuan3D, TripoSR/SG, CAD-Coder vb.)
+- Blender / DCC pipeline ile AI entegrasyonu
+
+Düşük puan (1-4) ver:
+- Saf 2D görüntü sınıflandırma, genel LLM, finans, politika
+- AI ile ilgili ama 3D/mesh/CAD ile doğrudan ilgisiz haberler
+- Genel oyun/industry haberi (3D AI yoksa)
+
+Orta puan (5-6): 3D ile zayıf veya dolaylı bağlantı.
 
 Yanıtını SADECE şu JSON formatında ver, başka metin ekleme:
 [{"id": 0, "score": 8}, {"id": 1, "score": 3}, ...]
@@ -25,17 +42,10 @@ id = makalenin sıra numarası (0'dan başlar), score = 1-10 arası puan.`;
 const MAX_RETRIES = 2;
 
 async function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export interface RelevanceResult {
-  passed: QueueEntry[];
-  dropped: Array<{ entry: QueueEntry; score: number }>;
-  bypassed: QueueEntry[];
-  parseError: boolean;
-}
-
-export async function filterByRelevance(
+export async function filterThreeDByRelevance(
   entries: QueueEntry[],
   thresholdOverride?: number,
 ): Promise<RelevanceResult> {
@@ -51,7 +61,7 @@ export async function filterByRelevance(
   }
 
   if (bypassed.length > 0) {
-    log.info(`Relevance bypass: ${bypassed.length} high-priority entries`);
+    log.info(`3D relevance bypass: ${bypassed.length} high-priority entries`);
   }
 
   if (toScore.length === 0) {
@@ -67,7 +77,7 @@ export async function filterByRelevance(
       const result = await openrouter.chat.send({
         model: config.openrouterModel,
         messages: [
-          { role: 'system', content: RELEVANCE_PROMPT },
+          { role: 'system', content: RELEVANCE_3D_PROMPT },
           { role: 'user', content: list },
         ],
       });
@@ -75,6 +85,7 @@ export async function filterByRelevance(
       const usage = extractChatUsage(result);
       if (usage) {
         recordTokenUsage('relevance', config.openrouterModel, usage, {
+          layer: '3d',
           batchSize: toScore.length,
         });
       }
@@ -86,7 +97,7 @@ export async function filterByRelevance(
       } else if (Array.isArray(rawContent)) {
         text = rawContent
           .filter((item): item is { type: 'text'; text: string } => item.type === 'text')
-          .map(item => item.text)
+          .map((item) => item.text)
           .join('');
       } else {
         text = '';
@@ -94,7 +105,7 @@ export async function filterByRelevance(
 
       const jsonMatch = text.match(/\[[\s\S]*\]/);
       if (!jsonMatch) {
-        log.warn('No JSON array found in relevance response');
+        log.warn('No JSON array in 3D relevance response');
         if (attempt < MAX_RETRIES) {
           await delay(Math.pow(2, attempt + 1) * 1000);
           continue;
@@ -110,7 +121,7 @@ export async function filterByRelevance(
         }
       }
 
-      const threshold = thresholdOverride ?? config.relevanceThreshold;
+      const threshold = thresholdOverride ?? THREED_RELEVANCE_THRESHOLD;
       const passed: QueueEntry[] = [];
       const dropped: Array<{ entry: QueueEntry; score: number }> = [];
 
@@ -127,19 +138,19 @@ export async function filterByRelevance(
 
       if (dropped.length > 0) {
         log.info(
-          `Relevance dropped ${dropped.length}: ${dropped.map(d => `"${d.entry.title}" (${d.score}/${threshold})`).join(', ')}`
+          `3D relevance dropped ${dropped.length}: ${dropped.map((d) => `"${d.entry.title}" (${d.score}/${threshold})`).join(', ')}`,
         );
       }
-      log.info(`Relevance: ${passed.length}/${toScore.length} passed (threshold ${threshold})`);
+      log.info(`3D relevance: ${passed.length}/${toScore.length} passed (threshold ${threshold})`);
 
       return { passed, dropped, bypassed, parseError: false };
     } catch (err) {
       if (attempt < MAX_RETRIES) {
         const backoffMs = Math.pow(2, attempt + 1) * 1000;
-        log.warn(`Relevance attempt ${attempt + 1} failed, retrying in ${backoffMs}ms: ${err}`);
+        log.warn(`3D relevance attempt ${attempt + 1} failed, retrying in ${backoffMs}ms: ${err}`);
         await delay(backoffMs);
       } else {
-        log.error('Relevance check failed after retries — entries stay discovered for retry', err);
+        log.error('3D relevance failed after retries', err);
         return { passed: [], dropped: [], bypassed, parseError: true };
       }
     }

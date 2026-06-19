@@ -1,5 +1,11 @@
 node_modules/
 dist/
+src/build-info.ts
 data/
 .env
+.env.local
+.env.*.local
 *.tmp
+.DS_Store
+*.log
+personal/

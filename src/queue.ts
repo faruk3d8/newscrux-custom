@@ -7,41 +7,62 @@ import type { Article, ArticleQueue, QueueEntry, ArticleState, SeenArticlesStore
 
 const log = createLogger('queue');
 
-const QUEUE_FILE = join(config.dataDir, 'article-queue.json');
+export type QueueScope = 'default' | '3d';
+
+const QUEUE_FILES: Record<QueueScope, string> = {
+  default: join(config.dataDir, 'article-queue.json'),
+  '3d': join(config.dataDir, 'article-queue-3d.json'),
+};
+
 const LEGACY_SEEN_FILE = join(config.dataDir, 'seen-articles.json');
 const CLEANUP_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const MAX_RETRIES = 3;
 
-// --- Persistence (atomic write) ---
+let activeScope: QueueScope = 'default';
+const queues = new Map<QueueScope, ArticleQueue>();
 
-function loadQueue(): ArticleQueue {
-  // Migration: if old seen-articles.json exists, import it
-  if (!existsSync(QUEUE_FILE) && existsSync(LEGACY_SEEN_FILE)) {
-    return migrateFromSeen();
+export function setQueueScope(scope: QueueScope): void {
+  activeScope = scope;
+}
+
+export function getQueueScope(): QueueScope {
+  return activeScope;
+}
+
+function queueFile(scope: QueueScope): string {
+  return QUEUE_FILES[scope];
+}
+
+function loadQueueFromDisk(scope: QueueScope): ArticleQueue {
+  const file = queueFile(scope);
+
+  if (scope === 'default' && !existsSync(file) && existsSync(LEGACY_SEEN_FILE)) {
+    return migrateFromSeen(file);
   }
 
   try {
-    if (existsSync(QUEUE_FILE)) {
-      return JSON.parse(readFileSync(QUEUE_FILE, 'utf-8'));
+    if (existsSync(file)) {
+      return JSON.parse(readFileSync(file, 'utf-8')) as ArticleQueue;
     }
   } catch {
-    log.warn('Queue file could not be read, starting fresh');
+    log.warn(`Queue file could not be read (${scope}), starting fresh`);
   }
   return { entries: {}, lastCleanup: Date.now(), coldStartDone: false };
 }
 
-function saveQueue(queue: ArticleQueue): void {
+function saveQueueToDisk(queue: ArticleQueue, scope: QueueScope): void {
   try {
     mkdirSync(config.dataDir, { recursive: true });
-    const tmpFile = QUEUE_FILE + '.tmp';
+    const file = queueFile(scope);
+    const tmpFile = `${file}.tmp`;
     writeFileSync(tmpFile, JSON.stringify(queue, null, 2), 'utf-8');
-    renameSync(tmpFile, QUEUE_FILE);
+    renameSync(tmpFile, file);
   } catch (err) {
-    log.error('Failed to save queue', err);
+    log.error(`Failed to save queue (${scope})`, err);
   }
 }
 
-function migrateFromSeen(): ArticleQueue {
+function migrateFromSeen(targetFile: string): ArticleQueue {
   log.info('Migrating from seen-articles.json to article-queue.json...');
   try {
     const old: SeenArticlesStore = JSON.parse(readFileSync(LEGACY_SEEN_FILE, 'utf-8'));
@@ -66,8 +87,11 @@ function migrateFromSeen(): ArticleQueue {
       lastCleanup: now,
       coldStartDone: true,
     };
-    saveQueue(queue);
-    renameSync(LEGACY_SEEN_FILE, LEGACY_SEEN_FILE + '.bak');
+    mkdirSync(config.dataDir, { recursive: true });
+    const tmpFile = `${targetFile}.tmp`;
+    writeFileSync(tmpFile, JSON.stringify(queue, null, 2), 'utf-8');
+    renameSync(tmpFile, targetFile);
+    renameSync(LEGACY_SEEN_FILE, `${LEGACY_SEEN_FILE}.bak`);
     log.info(`Migrated ${Object.keys(entries).length} entries from seen-articles.json`);
     return queue;
   } catch (err) {
@@ -75,8 +99,6 @@ function migrateFromSeen(): ArticleQueue {
     return { entries: {}, lastCleanup: Date.now(), coldStartDone: false };
   }
 }
-
-// --- Cleanup ---
 
 function cleanupOldEntries(queue: ArticleQueue): void {
   const cutoff = Date.now() - CLEANUP_INTERVAL_MS;
@@ -94,26 +116,35 @@ function cleanupOldEntries(queue: ArticleQueue): void {
     }
   }
   queue.lastCleanup = Date.now();
-  if (removed > 0) log.info(`Cleaned up ${removed} old queue entries`);
+  if (removed > 0) log.info(`Cleaned up ${removed} old queue entries (${activeScope})`);
 }
 
-// --- Public API ---
+function getQueue(): ArticleQueue {
+  const queue = queues.get(activeScope);
+  if (!queue) {
+    throw new Error(`Queue not loaded for scope "${activeScope}". Call loadArticleQueue() first.`);
+  }
+  return queue;
+}
 
-let _queue: ArticleQueue | null = null;
-
-export function loadArticleQueue(): ArticleQueue {
-  _queue = loadQueue();
-  cleanupOldEntries(_queue);
-  return _queue;
+export function loadArticleQueue(scope?: QueueScope): ArticleQueue {
+  if (scope !== undefined) {
+    activeScope = scope;
+  }
+  const queue = loadQueueFromDisk(activeScope);
+  cleanupOldEntries(queue);
+  queues.set(activeScope, queue);
+  log.info(
+    `Loaded queue (${activeScope}): ${Object.keys(queue.entries).length} entries`,
+  );
+  return queue;
 }
 
 export function saveArticleQueue(): void {
-  if (_queue) saveQueue(_queue);
-}
-
-export function getQueue(): ArticleQueue {
-  if (!_queue) throw new Error('Queue not loaded. Call loadArticleQueue() first.');
-  return _queue;
+  const queue = queues.get(activeScope);
+  if (queue) {
+    saveQueueToDisk(queue, activeScope);
+  }
 }
 
 export function isKnown(articleId: string): boolean {
@@ -149,7 +180,9 @@ export function handleColdStart(articles: Article[]): boolean {
   const queue = getQueue();
   if (queue.coldStartDone) return false;
 
-  log.info(`Cold start: marking ${articles.length} existing articles as sent (no notifications)`);
+  log.info(
+    `Cold start (${activeScope}): marking ${articles.length} existing articles as sent (no notifications)`,
+  );
   const now = Date.now();
   for (const article of articles) {
     if (!article.id) continue;
@@ -167,17 +200,21 @@ export function handleColdStart(articles: Article[]): boolean {
     };
   }
   queue.coldStartDone = true;
-  saveQueue(queue);
+  saveQueueToDisk(queue, activeScope);
   return true;
 }
 
 export function getEntriesByState(state: ArticleState, limit?: number): QueueEntry[] {
-  const entries = Object.values(getQueue().entries).filter(e => e.state === state);
+  const entries = Object.values(getQueue().entries).filter((e) => e.state === state);
   entries.sort((a, b) => a.discoveredAt - b.discoveredAt);
   return limit ? entries.slice(0, limit) : entries;
 }
 
-export function transitionEntry(id: string, newState: ArticleState, updates?: Partial<QueueEntry>): void {
+export function transitionEntry(
+  id: string,
+  newState: ArticleState,
+  updates?: Partial<QueueEntry>,
+): void {
   const queue = getQueue();
   const entry = queue.entries[id];
   if (!entry) {
@@ -208,7 +245,9 @@ export function markFailed(id: string, error: string): void {
     } else {
       entry.state = 'discovered';
     }
-    log.info(`Entry ${id} will be retried (attempt ${entry.retryCount}/${MAX_RETRIES}): ${error}`);
+    log.info(
+      `Entry ${id} will be retried (attempt ${entry.retryCount}/${MAX_RETRIES}): ${error}`,
+    );
   }
   entry.lastUpdatedAt = Date.now();
 }
@@ -219,7 +258,11 @@ export function removeEntry(id: string): void {
 
 export function countByState(): Record<ArticleState, number> {
   const counts: Record<ArticleState, number> = {
-    discovered: 0, enriched: 0, summarized: 0, sent: 0, failed: 0,
+    discovered: 0,
+    enriched: 0,
+    summarized: 0,
+    sent: 0,
+    failed: 0,
   };
   for (const entry of Object.values(getQueue().entries)) {
     counts[entry.state]++;

@@ -1,0 +1,530 @@
+================================================================================
+  NEWSCRUX-CUSTOM — UPSTREAM (NEWSCRUX) vs FORK KARŞILAŞTIRMA RAPORU
+================================================================================
+
+Hazırlanma tarihi : 2026-06-13
+Upstream kaynak   : https://github.com/alicankiraz1/newscrux
+Upstream dal      : origin/main (referans commit: f9f037b)
+Fork adı          : newscrux-custom (genel kullanıma açık dağıtım)
+Dağıtım örneği    : git clone → ~/newscrux-custom; systemd user unit
+
+NOT: Bu rapor upstream ile fork arasındaki mimari ve davranış farklarını
+     dokümante eder. Kişisel ortam yolları, IP adresleri ve kimlik bilgileri
+     kasıtlı olarak dahil edilmemiştir.
+
+     Kullanıcı ayarları (komut adları, saatler, .env): CONFIGURATION.md (depo kökü)
+
+
+================================================================================
+1. YÖNETİCİ ÖZETİ
+================================================================================
+
+Orijinal Newscrux, RSS kaynaklarından yapay zekâ haberlerini toplayan, OpenRouter
+LLM ile özetleyen ve Pushover üzerinden mobil bildirim gönderen tek süreçli bir
+Node.js/TypeScript uygulamasıdır. Zamanlama POLL_INTERVAL_MINUTES ile basit
+interval döngüsüne dayanır; kullanıcı etkileşimi yoktur.
+
+Özel fork, aynı çekirdek pipeline'ı korurken şu ana eksenlerde genişletilmiştir:
+
+  A) Bildirim kanalı     : Pushover → Telegram Bot API (HTML mesajlar)
+  B) Operasyon           : Telegram bot komutları, duraklat/devam, manuel poll
+  C) Zamanlama           : Interval yerine Europe/Istanbul saat bazlı (12:00, 20:00)
+  D) 3D AI katmanı       : Ayrı RSS/GitHub/arXiv kaynakları, ayrı kuyruk, aylık bütçe
+  E) Maliyet izleme      : Token JSONL log, OpenRouter kredi uyarıları, 3D bütçe guard
+  F) Raspberry Pi / prod : systemd user unit, linger, dosya logu, deploy script
+  G) Güvenlik            : SSRF korumalı HTTP fetch (url-security.ts)
+  H) Performans          : Feed profilleri (minimal/full), fast poll, eşzamanlılık
+  I) Bot i18n            : TR/EN arayüz (makale özet dili ayrı — i18n.ts)
+
+npm bağımlılıkları değişmemiştir (4 runtime paket). Tüm farklar mimari ve kod
+seviyesindedir.
+
+
+================================================================================
+2. BAĞIMLILIKLAR (package.json)
+================================================================================
+
+                    ORİJİNAL                    FORK
+Runtime deps        @openrouter/sdk ^0.3.11     Aynı
+                    cheerio ^1.2.0              Aynı
+                    dotenv ^17.3.1              Aynı
+                    rss-parser ^3.13.0          Aynı
+Dev deps            @types/node, tsx, typescript  Aynı
+
+Script farkları:
+  build (orijinal)  : tsc
+  build (fork)      : node scripts/generate-build-info.mjs && tsc
+  test:security     : (yok) → node scripts/test-url-security.mjs
+
+Yeni npm paketi eklenmemiştir.
+
+
+================================================================================
+3. DOSYA ENVANTERİ
+================================================================================
+
+3.1 Kaldırılan / yeniden adlandırılan
+-------------------------------------
+  src/pushover.ts          → KALDIRILDI (Pushover entegrasyonu)
+  src/telegram.ts          → YENİ (Pushover yerine geçer, ~187 satır)
+
+3.2 Orijinalde olup fork'ta korunan (çoğu değiştirilmiş)
+---------------------------------------------------------
+  src/cli.ts               — CLI dil seçimi (--lang)
+  src/config.ts            — Büyük genişleme (Telegram, performans, fast mode)
+  src/dedup.ts             — Küçük uyarlama
+  src/extractor.ts         — safeHttpFetch entegrasyonu
+  src/feeds.ts             — Feed listesi feeds.ts'e taşındı; minimal/full profil
+  src/i18n.ts              — Makale özeti dilleri (en, tr, de, fr, es) — korundu
+  src/index.ts             — Ana giriş: scheduler, bot, 3D poll, token session
+  src/logger.ts            — Korundu
+  src/queue.ts             — Queue scope (default | 3d) eklendi
+  src/relevance.ts         — Token usage kaydı eklendi
+  src/summarizer.ts        — Token usage kaydı eklendi
+  src/types.ts             — Genişletilmiş metrik/tip alanları
+
+3.3 Fork'ta yeni eklenen src/ modülleri (untracked veya yeni)
+--------------------------------------------------------------
+  src/telegram-bot.ts           (~334) Telegram long-polling, komut yönlendirme
+  src/telegram-commands.config.ts  Bot komut slug'ları, zamanlama sabitleri
+  src/bot-i18n.ts               (~366) Bot arayüzü TR/EN metinleri
+  src/control-state.ts          data/control-state.json — paused, 3D, locale
+  src/poll-coordinator.ts       (~116) Paylaşımlı kilit, manuel cooldown
+  src/scheduler.ts              (~133) Saat bazlı zamanlama (Istanbul TZ)
+  src/poll-options.ts           PollRunOptions tipi (manual, fast, layer)
+  src/poll-state.ts             Son poll anlık görüntüsü (/status)
+  src/poll-progress.ts          Uzun poll'larda heartbeat
+  src/manual-poll-notify.ts     Manuel poll başlangıç bildirimi
+  src/concurrency.ts            mapWithConcurrency yardımcısı
+  src/token-usage.ts            (~202) JSONL token log + oturum toplamları
+  src/openrouter-credits.ts     (~120) OpenRouter bakiye kontrolü/uyarı
+  src/budget-guard.ts           (~116) 3D aylık LLM bütçe limiti
+  src/url-security.ts           (~103) SSRF korumalı fetch
+  src/threed.config.ts          (~128) 3D katman sabitleri (döngüsel import yok)
+  src/feeds-3d.ts               (~183) 3D RSS + GitHub release feed'leri
+  src/relevance-3d.ts           (~160) 3D anahtar kelime + LLM relevance
+  src/poll-3d.ts                (~270) 3D poll pipeline
+  src/build-info.ts             Build zamanı/commit (generate-build-info.mjs ile)
+
+3.4 Yeni scripts/
+------------------
+  scripts/install-systemd.sh      Pi user systemd kurulumu + linger
+  scripts/deploy-to-pi.sh         Mac → Pi rsync + build + restart
+  scripts/diagnose-telegram.sh    Telegram bağlantı teşhisi
+  scripts/generate-build-info.mjs build öncesi build-info üretimi
+  scripts/pi-enable-file-logging.sh  Journal yerine dosya logu
+  scripts/run-foreground.sh       Geliştirme/ debug ön planda çalıştırma
+  scripts/test-url-security.mjs   SSRF testleri (npm run test:security)
+
+3.5 Kök dosya değişiklikleri
+------------------------------
+  .env.example          Pushover → Telegram; yeni env değişkenleri
+  README.md             Telegram, bot komutları, Pi kurulumu
+  newscrux.service      User unit, dosya logu, --lang=tr, ProtectHome
+  package.json          build script, test:security
+
+3.6 Git istatistikleri (sadece izlenen dosyalar vs origin/main)
+----------------------------------------------------------------
+  21 dosya değişti: +1548 / -385 satır (örnek; güncel: git diff origin/main --stat)
+  Fork dalı upstream'den ileride olabilir — git log origin/main..HEAD ile doğrulayın
+  Çok sayıda untracked dosya yukarıdaki listeye dahildir
+
+
+================================================================================
+4. ORTAM DEĞİŞKENLERİ (.env)
+================================================================================
+
+4.1 Kaldırılan (orijinal)
+-------------------------
+  PUSHOVER_USER_KEY
+  PUSHOVER_APP_TOKEN
+  POLL_INTERVAL_MINUTES          (interval döngüsü kaldırıldı)
+
+4.2 Eklenen / değiştirilen (fork)
+----------------------------------
+  TELEGRAM_BOT_TOKEN               Zorunlu
+  TELEGRAM_CHAT_ID                 Zorunlu (sayısal chat id)
+
+  FEED_PROFILE                     minimal | full (Pi için minimal önerilir)
+  MAX_RELEVANCE_BATCH              LLM relevance batch boyutu
+  SUMMARIZE_DELAY_MS               Özetler arası gecikme
+  SEND_DELAY_MS                    Telegram gönderim gecikmesi
+  SUMMARIZE_CONCURRENCY            Paralel özet sayısı
+  SCRAPE_DELAY_MS / SCRAPE_TIMEOUT_MS
+  PROGRESS_HEARTBEAT_MS            Uzun poll'larda Telegram heartbeat
+  STARTUP_NOTIFY                   Başlangıç Telegram mesajı
+  POLL_METRICS_NOTIFY              Poll sonu metrik bildirimi
+  OPENROUTER_CREDIT_ALERT          Düşük bakiye uyarısı
+  OPENROUTER_CREDIT_ALERT_MIN_USD
+  OPENROUTER_CREDIT_ALERT_COOLDOWN_MS
+  FAST_MAX_ARTICLES                /pollfast limitleri
+  FAST_ARXIV_MAX
+  FAST_RELEVANCE_BATCH
+  FAST_SUMMARIZE_CONCURRENCY
+  COMMAND_RATE_LIMIT_PER_MINUTE    Bot komut rate limit
+
+4.3 Kod içi sabitler (env değil)
+---------------------------------
+  SCHEDULE_TIMEZONE = Europe/Istanbul    (telegram-commands.config.ts)
+  SCHEDULE_HOURS    = [12, 20]           Ana haber poll saatleri
+  MANUAL_POLL_COOLDOWN_MINUTES = 15      Manuel poll bekleme
+  THREED_SCHEDULE_HOUR         = 20      3D katman (genel poll ile aynı saatte)
+  THREED_MONTHLY_BUDGET_USD / TARGET     threed.config.ts
+
+
+================================================================================
+5. MİMARİ KARŞILAŞTIRMA
+================================================================================
+
+5.1 Orijinal akış
+-----------------
+  index.ts
+    → validateConfig (Pushover keys)
+    → setInterval(poll, POLL_INTERVAL_MINUTES)
+    → poll: fetch feeds → relevance → queue → enrich → summarize → Pushover
+
+5.2 Fork akışı
+--------------
+  index.ts
+    → validateConfig (Telegram keys)
+    → markBotSessionStarted / token session
+    → registerPollHandler(pollAndNotify)
+    → registerPoll3DHandler(pollThreeDAndNotify)
+    → startScheduledPolls()          — saat bazlı, pause-aware
+    → startTelegramBotListener()     — long polling, webhook silinir
+    → (opsiyonel) startup Telegram bildirimi
+
+  poll-coordinator.runPollSafely()
+    → Tek aktif poll (manuel + zamanlanmış paylaşımlı kilit)
+    → Manuel cooldown 15 dk
+    → layer=default | 3d handler seçimi
+
+5.3 Veri dosyaları (data/)
+--------------------------
+  Orijinal (tipik):
+    article-queue.json, seen-articles.json
+
+  Fork ekleri:
+    control-state.json     { paused, threeDNewsEnabled, botLocale }
+    token-usage.jsonl        Her LLM çağrısı satır bazlı log
+    service.log              systemd stdout/stderr (Pi)
+    (3d scope queue aynı dosyada scope ile ayrılır)
+
+
+================================================================================
+6. BİLDİRİM: PUSHOVER → TELEGRAM
+================================================================================
+
+Orijinal (pushover.ts):
+  - Pushover REST API (https://api.pushover.net/1/messages.json)
+  - HTML mesaj gövdesi, title düz metin
+  - PUSHOVER_USER_KEY + PUSHOVER_APP_TOKEN
+
+Fork (telegram.ts):
+  - Telegram Bot API sendMessage
+  - HTML parse_mode, escapeHtml()
+  - Akıllı truncation (cümle sınırında kesme) — Pushover'dan taşınmış
+  - TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID
+  - sendChatMessage() — bot komut yanıtları için
+  - sendArticleNotification() — makale bildirimleri
+
+Davranış eşdeğeri: Her iki kanal da yapılandırılmış özeti kullanıcıya iletir;
+Telegram ek olarak interaktif bot ve grup/kanal mesajlaşması sağlar.
+
+
+================================================================================
+7. TELEGRAM BOT KOMUTLARI
+================================================================================
+
+Yetkilendirme: Yalnızca TELEGRAM_CHAT_ID ile eşleşen chat.
+
+Genel komutlar (telegram-commands.config.ts + bot-i18n menü):
+  /help, /commands     Komut listesi (locale'e göre TR/EN)
+  /status              Son poll, kredi, bütçe, build bilgisi
+  /pause, /resume      Zamanlanmış poll'ları duraklat/devam
+  /pollnow             Manuel poll (cooldown + kilit; /poll alias)
+  /langtr, /langen     Bot arayüz dili (control-state.botLocale)
+
+Telegram menü (BotFather setMyCommands — getTelegramMenuCommands):
+  Sabit: commands, status, pollnow
+  Dinamik (duruma göre tek satır):
+    - Dil: langtr veya langen (mevcut locale'in tersi)
+    - Zamanlama: pause veya resume (paused durumuna göre)
+    - 3D: 3dainewsopen veya 3dainewsclose (threeDNewsEnabled'a göre)
+  Dil değişince registerTelegramBotCommands() menüyü yeniler.
+
+3D komutlar (threed.config.ts):
+  /3dainews            3D katman durumu
+  /3dainewsopen        3D zamanlanmış poll'ları aç
+  /3dainewsclose       3D zamanlanmış poll'ları kapat
+
+Not (pollfast): Kod tabanında fastMode hâlâ desteklenir (config, poll-coordinator)
+  ancak ayrı /pollfast bot komutu kaldırılmıştır; manuel tetikleme /pollnow ile yapılır.
+
+Not (poll3d): threed.config.ts içinde poll3d tanımı kalabilir; telegram-bot.ts'te
+  handler yok. scripts/diagnose-telegram.sh ve deploy-to-pi.sh hâlâ /poll3d arar — güncel
+  kodla uyumsuz (Bölüm 19).
+
+Rate limit: COMMAND_RATE_LIMIT_PER_MINUTE (varsayılan 10/dk per chat)
+
+Not: Makale özet dili CLI --lang ile seçilir (i18n.ts); bot dili ayrıdır (bot-i18n.ts).
+
+
+================================================================================
+8. ZAMANLAMA
+================================================================================
+
+Orijinal:
+  POLL_INTERVAL_MINUTES (varsayılan 15) — sürekli interval
+
+Fork:
+  scheduler.ts — Europe/Istanbul, saat 12:00 ve 20:00
+  Pause aktifken zamanlanmış poll atlanır
+  Aynı saatte THREED_SCHEDULE_HOUR (20) ve threeDNewsEnabled ise
+    önce genel poll, ardından layer=3d poll sırayla çalışır
+  getNextScheduledRunAt() — /status'ta sonraki çalışma zamanı
+
+
+================================================================================
+9. 3D AI HABER KATMANI
+================================================================================
+
+Amaç: Genel AI haber akışından bağımsız, 3D üretim / mesh / CAD / Gaussian
+      splatting odaklı ikinci bir pipeline.
+
+Modüller:
+  threed.config.ts   — Sabitler, bot komut isimleri, maliyet tahmin katsayıları
+  feeds-3d.ts        — RSS: NVIDIA AI Blog, Stability AI, Blender Nation,
+                       Tripo AI, Meshy; GitHub releases: TRELLIS, Hunyuan3D,
+                       TripoSR, CAD-Coder; arXiv cs.GR, cs.CV
+  relevance-3d.ts    — Anahtar kelime ön filtresi + LLM relevance (layer=3d)
+  poll-3d.ts         — Ana poll döngüsünün 3D kopyası
+  budget-guard.ts    — Aylık tahmini USD harcama, limit aşımında LLM atlanır
+
+Kuyruk:
+  queue.setQueueScope('3d') — article-queue.json içinde scope ayrımı
+
+Kontrol:
+  control-state.threeDNewsEnabled — /3dainewsopen|close
+  Manuel 3D poll desteklenmez (yalnızca zamanlanmış veya genel poll sonrası)
+
+Maliyet:
+  token-usage.jsonl içinde detail=layer=3d kayıtları
+  THREED_MONTHLY_BUDGET_USD / THREED_MONTHLY_TARGET_USD (threed.config.ts)
+
+
+================================================================================
+10. MALİYET VE METRİKLER
+================================================================================
+
+token-usage.ts:
+  - Her summarize/relevance çağrısında OpenRouter usage JSONL'e yazılır
+  - Poll başına oturum toplamları (METRICS log + isteğe bağlı Telegram)
+  - formatBotSessionSpendLine() — /status ve bildirimlerde
+
+openrouter-credits.ts:
+  - OpenRouter credits endpoint periyodik kontrol
+  - OPENROUTER_CREDIT_ALERT_* eşikleri ile Telegram uyarı
+
+poll-state.ts / poll-progress.ts:
+  - /status için phase, süre, feed sayısı
+  - PROGRESS_HEARTBEAT_MS ile "hâlâ çalışıyor" mesajları
+
+build-info.ts:
+  - Derleme zamanı; /status satırında gösterim
+
+
+================================================================================
+11. GÜVENLİK
+================================================================================
+
+url-security.ts (fork'a özel):
+  - isSafeHttpUrl(): http/https only, private IP/localhost/metadata engeli
+  - safeHttpFetch(): redirect: manual, max 5 hop, hedef URL doğrulama
+  - extractor.ts bu API'yi kullanır (SSRF riski azaltılır)
+
+scripts/test-url-security.mjs:
+  - npm run test:security ile otomatik test
+
+systemd (newscrux.service):
+  - NoNewPrivileges=true
+  - ProtectSystem=full, ProtectHome=read-only
+  - ReadWritePaths yalnızca ~/newscrux/data
+  - .env chmod 600 (install-systemd.sh)
+
+
+================================================================================
+12. PERFORMANS VE Pi OPTİMİZASYONU
+================================================================================
+
+Feed profili (FEED_PROFILE):
+  full    — 13 RSS kaynağı (orijinale yakın set + Ahead of AI)
+  minimal — 5 kaynak (OpenAI, DeepMind, TechCrunch AI, arXiv cs.AI, Import AI)
+
+Fast poll (/pollfast):
+  - FAST_* limitleri, skipScraping=true, gecikmeler 0
+
+Eşzamanlılık:
+  - summarizeConcurrency (varsayılan 2)
+  - mapWithConcurrency() ile kontrollü paralellik
+
+arXiv URL güncellemesi:
+  - export.arxiv.org → rss.arxiv.org (feeds.ts)
+
+Scrape limitleri:
+  - maxScrapePerPoll, SCRAPE_* env ile Pi'de yük sınırlama
+
+
+================================================================================
+13. DAĞITIM VE SYSTEMD (Raspberry Pi)
+================================================================================
+
+Orijinal newscrux.service:
+  - WantedBy=multi-user.target (sistem servisi)
+  - StandardOutput/Error=journal
+  - ProtectSystem=strict
+  - --lang=en
+
+Fork newscrux.service:
+  - User systemd unit (~/.config/systemd/user/)
+  - WantedBy=default.target
+  - ExecStartPre: mkdir data
+  - StandardOutput/Error=append:~/newscrux/data/service.log
+  - loginctl enable-linger — SSH/oturum kapalıyken çalışma
+  - --lang=tr (Pi varsayılanı)
+
+install-systemd.sh:
+  - Unit kopyala, daemon-reload, enable, restart, linger
+
+deploy-to-pi.sh:
+  - rsync (node_modules, dist, .env, data hariç)
+  - ssh: npm install, npm run build, systemctl --user restart
+
+
+================================================================================
+14. ULUSLARARASILAŞTIRMA (i18n)
+================================================================================
+
+i18n.ts (orijinal + korundu):
+  - Makale özeti dilleri: en, tr, de, fr, es
+  - CLI: --lang=tr|en|...
+
+bot-i18n.ts (fork — yeni):
+  - Telegram bot menü ve yanıt metinleri TR/EN
+  - control-state.botLocale (varsayılan 'tr')
+  - /langtr, /langen komutları (metin komutu; menüde dinamik tek satır)
+  - getTelegramMenuCommands(): duruma göre dil / pause-resume / 3D toggle
+
+İki katman birbirinden bağımsızdır: bot Türkçe, özetler İngilizce olabilir.
+
+
+================================================================================
+15. ORİJİNAL vs FORK — ÖZELLİK MATRİSİ
+================================================================================
+
+Özellik                          Orijinal    Fork
+─────────────────────────────────────────────────────
+Pushover bildirimi                 Evet        Hayır
+Telegram bildirimi                 Hayır       Evet
+Telegram bot komutları             Hayır       Evet
+Saat bazlı zamanlama (IST)         Hayır       Evet (12, 20)
+Interval poll                      Evet        Hayır
+Duraklat / devam                   Hayır       Evet
+Manuel / hızlı poll                Hayır       Evet
+Paylaşımlı poll kilidi             Hayır       Evet
+Manuel poll cooldown               Hayır       Evet (15 dk)
+3D haber katmanı                   Hayır       Evet
+Ayrı 3D kuyruk scope               Hayır       Evet
+3D aylık bütçe guard               Hayır       Evet
+Token usage JSONL                  Hayır       Evet
+OpenRouter kredi uyarısı           Hayır       Evet
+Feed minimal/full profil           Hayır       Evet
+SSRF-safe fetch                    Hayır       Evet
+systemd user + linger + file log   Kısmi       Evet (geliştirilmiş)
+Mac→Pi deploy script               Hayır       Evet
+Bot arayüz i18n (TR/EN)            Hayır       Evet
+Build info embed                   Hayır       Evet
+
+
+================================================================================
+16. BİLİNEN TASARIM KARARLARI
+================================================================================
+
+1) threed.config.ts, telegram-commands.config.ts veya control-state.ts
+   import ETMEZ — ESM döngüsel import Pi'de çökme yapıyordu; düzeltildi.
+
+2) Zamanlama saatleri .env'de değil telegram-commands.config.ts / threed.config.ts
+   içinde sabit — bilinçli basitlik.
+
+3) POLL_INTERVAL_MINUTES kaldırıldı; sürekli polling yerine günde 2 ana + opsiyonel
+   3D run — Pi ve API maliyeti için.
+
+4) Orijinal systemd multi-user; fork user unit — tipik Linux kullanıcı hesabı
+   altında `~/.config/systemd/user/` ile kurulur; `loginctl enable-linger` önerilir.
+
+
+================================================================================
+17. ÖNERİLEN SONRAKİ ADIMLAR (opsiyonel)
+================================================================================
+
+  - Untracked değişiklikleri commit'leyerek git tabanını temizlemek
+  - openrouter-credits.ts mesajlarını bot-i18n'e taşımak (kısmi İngilizce kaldı)
+  - Pi'de: systemctl --user is-enabled newscrux && loginctl enable-linger "$(whoami)"
+  - ./scripts/deploy-to-pi.sh pi@raspberrypi.local ile dağıtım doğrulama
+
+
+================================================================================
+18. REFERANSLAR
+================================================================================
+
+  Upstream repo : https://github.com/alicankiraz1/newscrux
+  Fork repo     : https://github.com/faruk3d8/newscrux-custom
+  OpenRouter    : https://openrouter.ai/
+  Telegram Bot API : https://core.telegram.org/bots/api
+
+
+================================================================================
+19. YAYIN ÖNCESİ DENETİM (2026-06-13)
+================================================================================
+
+19.1 Upstream atıfı (zorunlu)
+-----------------------------
+  README.md, CONFIGURATION.md, docs/README.txt ve bu rapor upstream'i açıkça belirtir.
+  LICENSE: Copyright (c) 2026 Alican Kiraz (MIT) — fork katkıları için NOTICE dosyası
+  eklenebilir (opsiyonel).
+
+19.2 Kişisel / tanımlayıcı veri (PII)
+------------------------------------
+  Tamamlandı (2026-06-13):
+    - scripts/fix-poll3d-on-pi.sh silindi (PII + obsolete)
+    - scripts/pi-enable-file-logging.sh, run-foreground.sh → ~/newscrux-custom
+    - deploy-to-pi.sh, diagnose-telegram.sh güncellendi (/poll3d kontrolleri kaldırıldı)
+
+  GÜVENLİ / kasıtlı:
+    pi@raspberrypi.local (deploy örneği)
+    192.168.1.1 (test-url-security.mjs SSRF testi)
+    alicankiraz1/newscrux upstream referansları
+
+  Yerel only (.gitignore):
+    personal/ — GitHub'a gitmez
+
+19.3 Dokümantasyon senkronizasyonu
+----------------------------------
+  Tamamlandı:
+    README.md, CONFIGURATION.md, CONTRIBUTING.md, package.json → faruk3d8
+    Komut adları: /pollnow (alias /poll); /pollfast bot komutu yok
+    NOTICE dosyası eklendi (fork atıfı)
+
+19.4 Yayın checklist'i
+----------------------
+  [x] PII temizliği
+  [x] Script yolları newscrux-custom
+  [x] README/CONFIGURATION komut adları
+  [x] GitHub kullanıcı adı: faruk3d8
+  [ ] npm run build && npm run test:security (her release öncesi)
+  [ ] .env ve data/ commit dışı
+  [ ] GitHub'a push (kullanıcı tarafından)
+
+================================================================================
+                              RAPOR SONU
+================================================================================

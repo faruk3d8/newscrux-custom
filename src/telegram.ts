@@ -1,6 +1,7 @@
 // src/telegram.ts
-import { config, runtimeConfig } from './config.js';
+import { config } from './config.js';
 import { createLogger } from './logger.js';
+import { getContentLanguage } from './control-state.js';
 import { getLanguagePack } from './i18n.js';
 import type { QueueEntry, StructuredSummary } from './types.js';
 
@@ -45,10 +46,18 @@ interface RenderResult {
   truncated: boolean;
 }
 
-export function renderNotification(entry: QueueEntry, summary: StructuredSummary): RenderResult {
+export interface ArticleNotificationOptions {
+  notificationEmoji?: string;
+}
+
+export function renderNotification(
+  entry: QueueEntry,
+  summary: StructuredSummary,
+  options: ArticleNotificationOptions = {},
+): RenderResult {
   const isArxiv = entry.feedName.startsWith(config.arxivFeedPrefix);
-  const emoji = isArxiv ? '📄' : '📰';
-  const { labels } = getLanguagePack(runtimeConfig.language);
+  const emoji = options.notificationEmoji ?? (isArxiv ? '📄' : '📰');
+  const { labels } = getLanguagePack(getContentLanguage());
 
   const titleRaw = summary.translated_title || (summary as { title_tr?: string }).title_tr || entry.title;
   const title = titleRaw.slice(0, 250);
@@ -165,10 +174,11 @@ export async function sendNotification(
 export async function sendArticleNotification(
   entry: QueueEntry,
   summary: StructuredSummary,
+  options: ArticleNotificationOptions = {},
 ): Promise<{ success: boolean; truncated: boolean }> {
-  const { title, message, truncated } = renderNotification(entry, summary);
+  const { title, message, truncated } = renderNotification(entry, summary, options);
   const isArxiv = entry.feedName.startsWith(config.arxivFeedPrefix);
-  const { labels } = getLanguagePack(runtimeConfig.language);
+  const { labels } = getLanguagePack(getContentLanguage());
   const urlTitle = isArxiv ? labels.readArticle : labels.readMore;
 
   const success = await sendNotification(title, message, entry.link, urlTitle);

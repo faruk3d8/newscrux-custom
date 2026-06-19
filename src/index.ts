@@ -1,16 +1,14 @@
 #!/usr/bin/env node
 // src/index.ts
-import { config, runtimeConfig } from './config.js';
+import { config, getEffectivePollLimits, validateConfig } from './config.js';
 import { createLogger } from './logger.js';
-import { fetchAllArticles } from './feeds.js';
+import { fetchAllArticles, getActiveFeedCount } from './feeds.js';
 import { filterByRelevance } from './relevance.js';
 import { enrichEntry } from './extractor.js';
 import { summarizeEntry } from './summarizer.js';
 import {
   loadArticleQueue,
   saveArticleQueue,
-  getQueue,
-  isKnown,
   discoverArticles,
   handleColdStart,
   getEntriesByState,
@@ -18,33 +16,37 @@ import {
   markFailed,
   removeEntry,
   countByState,
+  setQueueScope,
 } from './queue.js';
 import { sendNotification, sendArticleNotification, escapeHtml, TELEGRAM_SAFE_MESSAGE } from './telegram.js';
 import { parseArgs } from './cli.js';
 import { getLanguagePack } from './i18n.js';
 import { startScheduledPolls, getNextScheduledRunAt, formatScheduledTime } from './scheduler.js';
 import { startTelegramBotListener } from './telegram-bot.js';
-import { registerPollHandler } from './poll-coordinator.js';
-import { isPaused, loadControlState } from './control-state.js';
+import { registerPollHandler, registerPoll3DHandler } from './poll-coordinator.js';
+import { isPaused, getContentLanguage, applyStartupLanguage } from './control-state.js';
 import { SCHEDULE_TIMEZONE, SCHEDULE_HOURS, BOT_COMMANDS } from './telegram-commands.config.js';
+import { THREED_BOT_COMMANDS } from './threed.config.js';
+import { pollThreeDAndNotify } from './poll-3d.js';
 import type { PollMetrics } from './types.js';
+import type { PollRunOptions } from './poll-options.js';
+import { PollProgressReporter } from './poll-progress.js';
+import { notifyManualPollFinished } from './manual-poll-notify.js';
+import { beginPollSnapshot, finishPollSnapshot } from './poll-state.js';
+import { formatBuildInfoLine } from './build-info.js';
+import { mapWithConcurrency } from './concurrency.js';
+import {
+  beginTokenSession,
+  getTokenSessionTotals,
+  logTokenSessionSummary,
+  markBotSessionStarted,
+} from './token-usage.js';
+import { checkOpenRouterCredits } from './openrouter-credits.js';
 
 const log = createLogger('main');
 
-function validateConfig(): void {
-  if (!config.openrouterApiKey) {
-    log.error('OPENROUTER_API_KEY is required. Set it in .env file.');
-    process.exit(1);
-  }
-  if (!config.telegramBotToken || !config.telegramChatId) {
-    log.error('TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are required. Set them in .env file.');
-    process.exit(1);
-  }
-}
-
 let pollCycleCount = 0;
 let lastArxivDigestTime = 0;
-const ARXIV_DIGEST_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
 function emitMetrics(metrics: PollMetrics): void {
   const parts = Object.entries(metrics)
@@ -53,9 +55,46 @@ function emitMetrics(metrics: PollMetrics): void {
   log.info(`[METRICS] poll_cycle=${pollCycleCount} ${parts}`);
 }
 
-async function pollAndNotify(): Promise<void> {
+function attachTokenUsage(metrics: PollMetrics): void {
+  const t = getTokenSessionTotals();
+  metrics.tokens_prompt = t.promptTokens;
+  metrics.tokens_completion = t.completionTokens;
+  metrics.tokens_total = t.totalTokens;
+  metrics.tokens_calls = t.callCount;
+}
+
+function finalizePollMetrics(
+  metrics: PollMetrics,
+  phase: string,
+  options: PollRunOptions = {},
+  error?: string,
+): void {
+  attachTokenUsage(metrics);
+  logTokenSessionSummary(pollCycleCount);
+  emitMetrics(metrics);
+  finishPollSnapshot({ metrics, phase, ...(error ? { error } : {}) });
+  const creditChatId = options.chatId ?? config.telegramChatId;
+  if (config.openrouterCreditAlertEnabled && creditChatId) {
+    void checkOpenRouterCredits(creditChatId);
+  }
+}
+
+async function pollAndNotify(options: PollRunOptions = {}): Promise<void> {
   pollCycleCount++;
-  log.info('Starting poll cycle...');
+  beginTokenSession(pollCycleCount);
+  const limits = getEffectivePollLimits(options);
+  const startedAt = Date.now();
+  const progress = new PollProgressReporter();
+
+  beginPollSnapshot({
+    manual: options.manual ?? false,
+    fastMode: limits.fastMode,
+    feedProfile: config.feedProfile,
+    feedCount: getActiveFeedCount(),
+    phase: 'Başlatılıyor',
+  });
+
+  progress.startHeartbeat();
 
   const metrics: PollMetrics = {
     discovered: 0,
@@ -72,16 +111,30 @@ async function pollAndNotify(): Promise<void> {
     truncated: 0,
     queue_pending: 0,
     queue_failed: 0,
+    tokens_prompt: 0,
+    tokens_completion: 0,
+    tokens_total: 0,
+    tokens_calls: 0,
   };
 
   try {
-    loadArticleQueue();
+    log.info(
+      `Starting poll cycle (manual=${!!options.manual}, fast=${limits.fastMode}, feeds=${config.feedProfile})`,
+    );
 
+    setQueueScope('default');
+    loadArticleQueue('default');
+
+    progress.phase('RSS kaynakları taranıyor…');
     const allArticles = await fetchAllArticles();
 
     if (handleColdStart(allArticles)) {
+      const coldMsg =
+        'İlk çalıştırma: mevcut haberler kuyruğa alındı, bildirim gönderilmedi. Bir sonraki aramada yeni makaleler işlenecek.';
       log.info('Cold start complete — no notifications this cycle');
-      emitMetrics(metrics);
+      progress.detail(`ℹ️ ${coldMsg}`);
+      await notifyManualPollFinished(options, metrics, 'cold_start', Date.now() - startedAt);
+      finalizePollMetrics(metrics, 'İlk çalıştırma tamamlandı', options);
       return;
     }
 
@@ -91,22 +144,25 @@ async function pollAndNotify(): Promise<void> {
 
     if (newCount === 0 && getEntriesByState('discovered').length === 0) {
       log.info('No new or pending articles');
-      emitMetrics(metrics);
+      progress.phase('Yeni makale yok.');
+      await notifyManualPollFinished(options, metrics, 'no_news', Date.now() - startedAt);
+      finalizePollMetrics(metrics, 'Tamamlandı', options);
       return;
     }
 
     const relevancePassedIds = new Set<string>();
-    // Limit discovered batch to prevent overwhelming the relevance model
-    const MAX_RELEVANCE_BATCH = 25;
     const allDiscovered = getEntriesByState('discovered');
-    const discovered = allDiscovered.slice(0, MAX_RELEVANCE_BATCH);
+    const discovered = allDiscovered.slice(0, limits.maxRelevanceBatch);
 
-    if (allDiscovered.length > MAX_RELEVANCE_BATCH) {
-      log.info(`Processing ${discovered.length}/${allDiscovered.length} discovered articles this cycle`);
+    if (allDiscovered.length > limits.maxRelevanceBatch) {
+      log.info(
+        `Processing ${discovered.length}/${allDiscovered.length} discovered articles this cycle`,
+      );
     }
 
     if (discovered.length > 0) {
-      const result = await filterByRelevance(discovered);
+      progress.phase(`AI ilgililik filtresi (${discovered.length} makale)…`);
+      const result = await filterByRelevance(discovered, limits.relevanceThreshold);
 
       metrics.relevance_bypassed = result.bypassed.length;
       metrics.relevance_passed = result.passed.length;
@@ -130,18 +186,27 @@ async function pollAndNotify(): Promise<void> {
     }
 
     const isArxiv = (name: string) => name.startsWith(config.arxivFeedPrefix);
-    const eligibleForEnrich = getEntriesByState('discovered').filter(e => relevancePassedIds.has(e.id));
-    const regularToEnrich = eligibleForEnrich.filter(e => !isArxiv(e.feedName));
-    const arxivToEnrich = eligibleForEnrich.filter(e => isArxiv(e.feedName));
+    const eligibleForEnrich = getEntriesByState('discovered').filter((e) =>
+      relevancePassedIds.has(e.id),
+    );
+    const regularToEnrich = eligibleForEnrich.filter((e) => !isArxiv(e.feedName));
+    const arxivToEnrich = eligibleForEnrich.filter((e) => isArxiv(e.feedName));
 
     const enrichBatch = [
-      ...regularToEnrich.slice(0, config.maxArticlesPerPoll),
-      ...arxivToEnrich.slice(0, config.arxivMaxPerPoll),
+      ...regularToEnrich.slice(0, limits.maxArticlesPerPoll),
+      ...arxivToEnrich.slice(0, limits.arxivMaxPerPoll),
     ];
+
+    if (enrichBatch.length > 0) {
+      const scrapeNote = limits.skipScraping ? ' (kazıma kapalı)' : '';
+      progress.phase(`İçerik zenginleştirme (${enrichBatch.length})${scrapeNote}…`);
+    }
 
     for (const entry of enrichBatch) {
       try {
-        const { enrichedContent, wasScraped } = await enrichEntry(entry);
+        const { enrichedContent, wasScraped } = await enrichEntry(entry, {
+          skipScraping: limits.skipScraping,
+        });
         transitionEntry(entry.id, 'enriched', { enrichedContent });
         metrics.enriched++;
         if (wasScraped) metrics.enrichment_scraped++;
@@ -153,7 +218,13 @@ async function pollAndNotify(): Promise<void> {
     saveArticleQueue();
 
     const toSummarize = getEntriesByState('enriched');
-    for (const entry of toSummarize) {
+    if (toSummarize.length > 0) {
+      progress.phase(
+        `Özetleniyor (${toSummarize.length}, eşzamanlı=${limits.summarizeConcurrency})…`,
+      );
+    }
+
+    await mapWithConcurrency(toSummarize, limits.summarizeConcurrency, async (entry) => {
       const summary = await summarizeEntry(entry);
       if (summary) {
         transitionEntry(entry.id, 'summarized', { structuredSummary: summary });
@@ -162,16 +233,20 @@ async function pollAndNotify(): Promise<void> {
         markFailed(entry.id, 'Summarization failed');
         metrics.summary_failed++;
       }
-      await new Promise(resolve => setTimeout(resolve, 2000));
-    }
+      if (limits.summarizeDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, limits.summarizeDelayMs));
+      }
+    });
     saveArticleQueue();
 
-    // --- Send: split regular (immediate) vs arXiv (hourly digest) ---
     const toSend = getEntriesByState('summarized');
-    const regularToSend = toSend.filter(e => !isArxiv(e.feedName));
-    const arxivToSend = toSend.filter(e => isArxiv(e.feedName));
+    const regularToSend = toSend.filter((e) => !isArxiv(e.feedName));
+    const arxivToSend = toSend.filter((e) => isArxiv(e.feedName));
 
-    // Send regular articles immediately
+    if (regularToSend.length > 0) {
+      progress.phase(`Telegram gönderimi (${regularToSend.length})…`);
+    }
+
     for (const entry of regularToSend) {
       if (!entry.structuredSummary) {
         markFailed(entry.id, 'No structured summary available');
@@ -189,44 +264,53 @@ async function pollAndNotify(): Promise<void> {
         metrics.send_failed++;
       }
 
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      if (limits.sendDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, limits.sendDelayMs));
+      }
     }
 
-    // Send arXiv as hourly digest
     const now = Date.now();
-    const arxivReady = arxivToSend.filter(e => e.structuredSummary);
-    if (arxivReady.length > 0 && (now - lastArxivDigestTime) >= ARXIV_DIGEST_INTERVAL_MS) {
-      const { labels } = getLanguagePack(runtimeConfig.language);
+    const arxivReady = arxivToSend.filter((e) => e.structuredSummary);
+    if (
+      arxivReady.length > 0 &&
+      now - lastArxivDigestTime >= config.arxivDigestIntervalMs
+    ) {
+      progress.phase(`arXiv özeti hazırlanıyor (${arxivReady.length})…`);
+      const { labels } = getLanguagePack(getContentLanguage());
 
-      // Build digest message: each paper gets a compact entry
       const digestParts: string[] = [];
       for (const entry of arxivReady) {
         const s = entry.structuredSummary!;
-        const title = s.translated_title || (s as any).title_tr || entry.title;
+        const title = s.translated_title || (s as { title_tr?: string }).title_tr || entry.title;
         digestParts.push(`<b>${escapeHtml(title)}</b>\n${escapeHtml(s.what_happened)}`);
       }
 
-      // Telegram message limit — fit as many papers as possible
       let digestMessage = '';
       let includedCount = 0;
       for (const part of digestParts) {
-        const candidate = digestMessage ? digestMessage + '\n\n' + part : part;
+        const candidate = digestMessage ? `${digestMessage}\n\n${part}` : part;
         if (candidate.length > TELEGRAM_SAFE_MESSAGE) break;
         digestMessage = candidate;
         includedCount++;
       }
 
       const digestTitle = `📄 arXiv Digest (${includedCount} ${includedCount === 1 ? 'paper' : 'papers'})`;
-      const success = await sendNotification(digestTitle, digestMessage, 'https://arxiv.org', labels.readMore);
+      const success = await sendNotification(
+        digestTitle,
+        digestMessage,
+        'https://arxiv.org',
+        labels.readMore,
+      );
 
       if (success) {
-        // Mark all arxiv papers as sent (even those that didn't fit in message)
         for (const entry of arxivReady) {
           transitionEntry(entry.id, 'sent');
           metrics.sent++;
         }
         lastArxivDigestTime = now;
-        log.info(`arXiv digest sent: ${includedCount} papers in message, ${arxivReady.length} total marked sent`);
+        log.info(
+          `arXiv digest sent: ${includedCount} papers in message, ${arxivReady.length} total marked sent`,
+        );
       } else {
         for (const entry of arxivReady) {
           markFailed(entry.id, 'arXiv digest send failed');
@@ -234,7 +318,9 @@ async function pollAndNotify(): Promise<void> {
         }
       }
     } else if (arxivReady.length > 0) {
-      log.info(`arXiv: ${arxivReady.length} papers waiting for next digest (${Math.round((ARXIV_DIGEST_INTERVAL_MS - (now - lastArxivDigestTime)) / 60000)}min remaining)`);
+      log.info(
+        `arXiv: ${arxivReady.length} papers waiting for next digest (${Math.round((config.arxivDigestIntervalMs - (now - lastArxivDigestTime)) / 60000)}min remaining)`,
+      );
     }
 
     saveArticleQueue();
@@ -243,11 +329,22 @@ async function pollAndNotify(): Promise<void> {
     metrics.queue_pending = counts.discovered + counts.enriched + counts.summarized;
     metrics.queue_failed = counts.failed;
 
-    emitMetrics(metrics);
     log.info(`Poll cycle complete: ${metrics.sent} sent, ${metrics.queue_pending} pending`);
+
+    await notifyManualPollFinished(options, metrics, 'completed', Date.now() - startedAt);
+    finalizePollMetrics(metrics, 'Tamamlandı', options);
   } catch (err) {
     log.error('Error in poll cycle', err);
     saveArticleQueue();
+    finalizePollMetrics(
+      metrics,
+      'Hata',
+      options,
+      err instanceof Error ? err.message : String(err),
+    );
+    throw err;
+  } finally {
+    progress.stopHeartbeat();
   }
 }
 
@@ -261,37 +358,59 @@ function setupShutdown(): void {
   process.on('SIGTERM', () => shutdown('SIGTERM'));
 }
 
+function logStartupFailure(message: string, err?: unknown): void {
+  log.error(message, err);
+  const detail = err instanceof Error ? err.stack ?? err.message : err ? String(err) : message;
+  console.error(`[newscrux] STARTUP FAILED: ${detail}`);
+}
+
 async function main(): Promise<void> {
-  // Parse CLI args before anything else
-  const args = parseArgs();
-  runtimeConfig.language = args.lang;
-
-  const pack = getLanguagePack(runtimeConfig.language);
-  log.info(`Newscrux v2.0 starting... (language: ${pack.name})`);
-  validateConfig();
-  setupShutdown();
-
-  const startupSent = await sendNotification(
-    '📡 Newscrux',
-    pack.labels.startupMessage,
-  );
-
-  if (startupSent) {
-    log.info('Startup notification sent');
-  } else {
-    log.error('Failed to send startup notification — check Telegram credentials');
+  const { lang, langExplicit } = parseArgs();
+  if (langExplicit) {
+    applyStartupLanguage(lang);
   }
 
-  loadControlState();
+  const pack = getLanguagePack(getContentLanguage());
+  log.info(`Newscrux ${formatBuildInfoLine()} starting... (language: ${pack.name})`);
+  log.info(`cwd=${process.cwd()} node=${process.version}`);
+
+  try {
+    validateConfig();
+  } catch (err) {
+    logStartupFailure('Configuration invalid — fix .env or EnvironmentFile', err);
+    process.exit(1);
+  }
+
+  markBotSessionStarted();
+
+  setupShutdown();
+
+  if (config.startupNotify) {
+    const startupBody = `${pack.labels.startupMessage}\n\n${formatBuildInfoLine()}`;
+    const startupSent = await sendNotification('📡 Newscrux', startupBody);
+    if (startupSent) {
+      log.info('Startup notification sent');
+    } else {
+      log.error('Failed to send startup notification — check Telegram credentials');
+    }
+  } else {
+    log.info('Startup notification disabled (STARTUP_NOTIFY=false)');
+  }
+
   registerPollHandler(pollAndNotify);
+  registerPoll3DHandler(pollThreeDAndNotify);
   startTelegramBotListener();
 
   const commands = Object.values(BOT_COMMANDS).join(', ');
-  log.info(`Bot commands: ${commands}`);
+  const threeD = Object.values(THREED_BOT_COMMANDS)
+    .map((c) => `/${c}`)
+    .join(', ');
+  log.info(`Bot commands: ${commands}; 3D: ${threeD}`);
   log.info(
     `Schedule: ${SCHEDULE_HOURS.join(' & ')} (${SCHEDULE_TIMEZONE})` +
       (isPaused() ? ' — PAUSED' : ''),
   );
+  log.info(`Feed profile: ${config.feedProfile} (${getActiveFeedCount()} feeds)`);
 
   try {
     const next = getNextScheduledRunAt(SCHEDULE_TIMEZONE, SCHEDULE_HOURS);
@@ -303,7 +422,17 @@ async function main(): Promise<void> {
   startScheduledPolls();
 }
 
+process.on('unhandledRejection', (reason) => {
+  logStartupFailure('Unhandled promise rejection', reason);
+  process.exit(1);
+});
+
+process.on('uncaughtException', (err) => {
+  logStartupFailure('Uncaught exception', err);
+  process.exit(1);
+});
+
 main().catch((err) => {
-  log.error('Fatal error', err);
+  logStartupFailure('Fatal error during startup', err);
   process.exit(1);
 });

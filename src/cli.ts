@@ -23,7 +23,7 @@ function printHelp(): void {
 Usage: newscrux [options]
 
 Options:
-  -l, --lang <code>   Summary language: ${SUPPORTED_LANGUAGES.join(', ')} (default: "en")
+  -l, --lang <code>   Summary language: ${SUPPORTED_LANGUAGES.join(', ')} (default: "tr")
   -h, --help          Show this help message
   -v, --version       Show version number
 
@@ -33,17 +33,18 @@ Environment variables (.env):
   TELEGRAM_CHAT_ID      Telegram chat ID (required)
   OPENROUTER_MODEL      AI model (default: deepseek/deepseek-v3.2-speciale)
   Schedule & bot commands are configured in src/telegram-commands.config.ts
-  (default: Istanbul 12:00 and 20:00, commands /durdur /baslat /ara /durum)
+  (default: Istanbul 12:00 and 20:00, commands /pause /resume /pollnow /status)
 
 Examples:
   newscrux --lang=tr    Start with Turkish summaries
   newscrux -l de        Start with German summaries
-  newscrux              Start with English summaries (default)`);
+  newscrux              Start with Turkish summaries (default)`);
 }
 
-export function parseArgs(): { lang: SupportedLanguage } {
+export function parseArgs(): { lang: SupportedLanguage; langExplicit: boolean } {
   const args = process.argv.slice(2);
-  let lang: SupportedLanguage = 'en';
+  let lang: SupportedLanguage = 'tr';
+  let langExplicit = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -66,6 +67,7 @@ export function parseArgs(): { lang: SupportedLanguage } {
         process.exit(1);
       }
       lang = value as SupportedLanguage;
+      langExplicit = true;
       continue;
     }
 
@@ -81,10 +83,11 @@ export function parseArgs(): { lang: SupportedLanguage } {
         process.exit(1);
       }
       lang = value as SupportedLanguage;
+      langExplicit = true;
       i++; // skip next arg (the value)
       continue;
     }
   }
 
-  return { lang };
+  return { lang, langExplicit };
 }
