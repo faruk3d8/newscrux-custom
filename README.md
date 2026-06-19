@@ -1,4 +1,6 @@
-# 📡 Newscrux-Custom
+!Proje ve proje sayfası düzenlenmeye devam etmektedir.
+
+# Newscrux-Custom
 
 > Yapay zekâ destekli haber toplayıcı: çok dilli yapılandırılmış özetler, Telegram bot kontrolü ve zamanlanmış tarama
 
