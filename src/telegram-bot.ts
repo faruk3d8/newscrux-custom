@@ -1,5 +1,5 @@
 // src/telegram-bot.ts
-import { config } from './config.js';
+import { APP_DISPLAY_NAME, config } from './config.js';
 import { createLogger } from './logger.js';
 import {
   isPaused,
@@ -9,6 +9,9 @@ import {
   setThreeDNewsEnabled,
   getBotLocale,
   setBotLocale,
+  setContentLanguage,
+  getScheduleMode,
+  getPollIntervalMinutes,
 } from './control-state.js';
 import { getNextScheduledRunAt, formatScheduledTime } from './scheduler.js';
 import {
@@ -19,26 +22,86 @@ import {
 } from './telegram-commands.config.js';
 import {
   BOT_LANG_COMMANDS,
+  BOT_LANGUAGES_COMMAND,
   formatCommandsHelp,
+  formatPollDurationShort,
   getBotMessages,
   getTelegramMenuCommands,
   localeDateTimeString,
   localeNumber,
   type BotLocale,
 } from './bot-i18n.js';
-import { sendChatMessage } from './telegram.js';
+import {
+  LANGUAGE_DISPLAY_NAMES,
+  SUPPORTED_LANGUAGES,
+  isSupportedLanguage,
+  type SupportedLanguage,
+} from './i18n.js';
+import {
+  answerCallbackQuery,
+  editMessageText,
+  formatUpstreamSourcePlainLine,
+  formatUpstreamSourceLine,
+  sendChatMessage,
+  type TelegramInlineKeyboardMarkup,
+} from './telegram.js';
 import { clearTelegramWebhook, isPollInProgress, runPollSafely } from './poll-coordinator.js';
 import { getActiveFeedCount } from './feeds.js';
 import { getLastPollSnapshot, getPollPhase } from './poll-state.js';
 import { getLastCreditsSnapshot } from './openrouter-credits.js';
 import { formatBuildInfoLine } from './build-info.js';
 import { THREED_BOT_COMMANDS, THREED_SCHEDULE_HOUR } from './threed.config.js';
-import { formatThreeDBudgetLine } from './budget-guard.js';
-import { formatBotSessionSpendLine } from './token-usage.js';
+import { formatMonthlyBudgetLine } from './budget-guard.js';
 
 const log = createLogger('telegram-bot');
 
 export { isPollInProgress };
+
+export function formatStartupNotificationBody(headline: string, locale: BotLocale): string {
+  const msg = getBotMessages(locale);
+  const paused = isPaused();
+  const statusLine = paused ? msg.statusPaused : msg.statusRunning;
+  let nextLine = '';
+  try {
+    const next = getNextScheduledRunAt(SCHEDULE_TIMEZONE, SCHEDULE_HOURS);
+    nextLine = `${msg.nextRun}: ${formatScheduledTime(next, SCHEDULE_TIMEZONE)}`;
+  } catch {
+    nextLine = '';
+  }
+  const mode = getScheduleMode();
+  let scheduleInfo: string;
+  if (mode === 'interval') {
+    const mins = getPollIntervalMinutes();
+    scheduleInfo =
+      mins != null
+        ? msg.scheduleIntervalLine(mins)
+        : msg.scheduleModeHoursLine(SCHEDULE_HOURS.join(','), SCHEDULE_TIMEZONE);
+  } else {
+    scheduleInfo = msg.scheduleModeHoursLine(SCHEDULE_HOURS.join(','), SCHEDULE_TIMEZONE);
+  }
+  const lines = [
+    headline,
+    '',
+    statusLine,
+    ...(nextLine ? [nextLine] : []),
+    scheduleInfo,
+    msg.startupPollNowHint,
+    formatUpstreamSourcePlainLine(locale),
+    '',
+    formatBuildInfoLine(),
+  ];
+  return lines.join('\n');
+}
+
+const LANG_CALLBACK_PREFIX = 'lang:';
+
+const LANGUAGE_FLAGS: Record<SupportedLanguage, string> = {
+  tr: '🇹🇷',
+  en: '🇬🇧',
+  de: '🇩🇪',
+  fr: '🇫🇷',
+  es: '🇪🇸',
+};
 
 const commandTimestamps = new Map<string, number[]>();
 
@@ -76,6 +139,25 @@ async function refreshTelegramBotMenu(token: string, locale?: BotLocale): Promis
   await registerTelegramBotCommands(token, locale);
 }
 
+/** Set bot display name in Telegram chat list / profile (Bot API setMyName). */
+async function registerTelegramBotProfile(token: string): Promise<void> {
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${token}/setMyName`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: APP_DISPLAY_NAME }),
+    });
+    const body = (await response.json()) as { ok?: boolean; description?: string };
+    if (body.ok) {
+      log.info(`Telegram bot display name set to "${APP_DISPLAY_NAME}"`);
+    } else {
+      log.warn(`setMyName: ${body.description ?? 'unknown error'}`);
+    }
+  } catch (err) {
+    log.warn(`setMyName failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 async function postSetMyCommands(
   token: string,
   payload: Record<string, unknown>,
@@ -105,12 +187,12 @@ async function registerTelegramBotCommands(token: string, locale?: BotLocale): P
   const loc = locale ?? getBotLocale();
   const activeCommands = menuCommandsForLocale(loc);
 
-  // Telegram picks descriptions by the user's app language (language_code), not botLocale.
-  for (const lc of ['tr', 'en'] as const) {
+  // Telegram picks descriptions by the user's app language_code; always use botLocale text.
+  for (const lc of SUPPORTED_LANGUAGES) {
     await postSetMyCommands(
       token,
-      { commands: menuCommandsForLocale(lc), language_code: lc },
-      `language_code=${lc}`,
+      { commands: activeCommands, language_code: lc },
+      `language_code=${lc} botLocale=${loc}`,
     );
   }
 
@@ -146,14 +228,7 @@ function isAuthorizedChat(chatId: number | string | undefined): boolean {
 
 function formatDuration(ms: number | undefined, locale: BotLocale): string {
   if (!ms) return '-';
-  const sec = Math.round(ms / 1000);
-  if (sec < 60) return locale === 'tr' ? `${sec} sn` : `${sec}s`;
-  const min = Math.floor(sec / 60);
-  const rem = sec % 60;
-  if (locale === 'tr') {
-    return rem > 0 ? `${min} dk ${rem} sn` : `${min} dk`;
-  }
-  return rem > 0 ? `${min}m ${rem}s` : `${min}m`;
+  return formatPollDurationShort(ms, locale);
 }
 
 function formatLastPollBlock(locale: BotLocale): string {
@@ -194,7 +269,87 @@ function formatLastPollBlock(locale: BotLocale): string {
 async function switchBotLocale(chatId: string, locale: BotLocale, token: string): Promise<void> {
   setBotLocale(locale);
   await registerTelegramBotCommands(token, locale);
-  await sendChatMessage(chatId, getBotMessages(locale).langSwitched(locale));
+  await sendChatMessage(
+    chatId,
+    getBotMessages(locale).langSwitched(LANGUAGE_DISPLAY_NAMES[locale]),
+  );
+}
+
+function buildLanguagePickerMarkup(locale: BotLocale): TelegramInlineKeyboardMarkup {
+  const msgs = getBotMessages(locale);
+  const rows = SUPPORTED_LANGUAGES.map((code) => [
+    {
+      text: `${LANGUAGE_FLAGS[code]} ${LANGUAGE_DISPLAY_NAMES[code]}`,
+      callback_data: `${LANG_CALLBACK_PREFIX}${code}`,
+    },
+  ]);
+  rows.push([
+    {
+      text: msgs.langPickerCloseButton,
+      callback_data: `${LANG_CALLBACK_PREFIX}close`,
+    },
+  ]);
+  return { inline_keyboard: rows };
+}
+
+async function handleLanguagesCommand(chatId: string, locale: BotLocale): Promise<void> {
+  const msg = getBotMessages(locale);
+  await sendChatMessage(chatId, msg.langPickerTitle, {
+    reply_markup: buildLanguagePickerMarkup(locale),
+  });
+}
+
+async function handleCallbackQuery(
+  query: NonNullable<TelegramUpdate['callback_query']>,
+  token: string,
+): Promise<void> {
+  const chatId = query.message?.chat.id;
+  if (chatId === undefined || !isAuthorizedChat(chatId)) {
+    await answerCallbackQuery(query.id);
+    return;
+  }
+
+  const chatIdStr = String(chatId);
+  const messageId = query.message?.message_id;
+  const locale = getBotLocale();
+  const msg = getBotMessages(locale);
+
+  if (isRateLimited(chatIdStr)) {
+    await answerCallbackQuery(query.id, { text: msg.rateLimited, show_alert: true });
+    return;
+  }
+
+  const data = query.data ?? '';
+  if (!data.startsWith(LANG_CALLBACK_PREFIX) || messageId === undefined) {
+    await answerCallbackQuery(query.id);
+    return;
+  }
+
+  const choice = data.slice(LANG_CALLBACK_PREFIX.length);
+  const emptyKeyboard: TelegramInlineKeyboardMarkup = { inline_keyboard: [] };
+
+  if (choice === 'close') {
+    await answerCallbackQuery(query.id);
+    await editMessageText(chatIdStr, messageId, msg.langPickerClosed, {
+      reply_markup: emptyKeyboard,
+    });
+    return;
+  }
+
+  if (!isSupportedLanguage(choice)) {
+    await answerCallbackQuery(query.id);
+    return;
+  }
+
+  const displayName = LANGUAGE_DISPLAY_NAMES[choice];
+  setBotLocale(choice);
+  await registerTelegramBotCommands(token, choice);
+
+  const confirmation = getBotMessages(choice).langSwitchedTo(displayName);
+  await answerCallbackQuery(query.id, { text: confirmation });
+  await editMessageText(chatIdStr, messageId, confirmation, {
+    reply_markup: emptyKeyboard,
+  });
 }
 
 async function handleCommand(chatId: string, text: string, token: string): Promise<void> {
@@ -219,12 +374,17 @@ async function handleCommand(chatId: string, text: string, token: string): Promi
     return;
   }
 
+  if (cmd === `/${BOT_LANGUAGES_COMMAND}`) {
+    await handleLanguagesCommand(chatId, locale);
+    return;
+  }
+
   if (cmd === `/${THREED_BOT_COMMANDS.enable}`) {
     setThreeDNewsEnabled(true);
     await refreshTelegramBotMenu(token);
     await sendChatMessage(
       chatId,
-      `${msg.threeDEnabledSchedule(THREED_SCHEDULE_HOUR, SCHEDULE_TIMEZONE)}\n${formatThreeDBudgetLine(locale)}`,
+      `${msg.threeDEnabledSchedule(THREED_SCHEDULE_HOUR, SCHEDULE_TIMEZONE)}\n${formatMonthlyBudgetLine(locale)}`,
     );
     return;
   }
@@ -265,7 +425,7 @@ async function handleCommand(chatId: string, text: string, token: string): Promi
   if (action === 'status') {
     const { paused } = getControlState();
     const statusLine = paused ? msg.statusPaused : msg.statusRunning;
-    const langLine = `\n${msg.langCurrent(locale)}`;
+    const langLine = `\n${msg.langCurrent(LANGUAGE_DISPLAY_NAMES[locale])}`;
     let nextLine = '';
     try {
       const next = getNextScheduledRunAt(SCHEDULE_TIMEZONE, SCHEDULE_HOURS);
@@ -277,9 +437,7 @@ async function handleCommand(chatId: string, text: string, token: string): Promi
     const runningLine = isPollInProgress()
       ? `\n${msg.pollInProgress}${getPollPhase() ? `: ${getPollPhase()}` : ''}.`
       : '';
-    const hoursLine = `\n${msg.scheduleHours} (${SCHEDULE_TIMEZONE}): ${SCHEDULE_HOURS.join(', ')}`;
     const feedLine = `\n${msg.feedProfile}: ${config.feedProfile} (${getActiveFeedCount()} ${msg.feedsLabel})`;
-    const sessionSpendLine = `\n${formatBotSessionSpendLine(locale)}`;
     const buildLine = `\n${formatBuildInfoLine()}`;
     const threeDState = isThreeDNewsEnabled() ? msg.threeDStatusOn : msg.threeDStatusOff;
     const threeDLine = `\n${msg.threeDNews}: ${threeDState} (${THREED_SCHEDULE_HOUR}:00)`;
@@ -287,7 +445,7 @@ async function handleCommand(chatId: string, text: string, token: string): Promi
 
     await sendChatMessage(
       chatId,
-      `${statusLine}${langLine}${runningLine}${nextLine}${hoursLine}${feedLine}${sessionSpendLine}${threeDLine}${buildLine}${lastLine}`,
+      `${statusLine}${langLine}${runningLine}${nextLine}${feedLine}${threeDLine}${buildLine}${lastLine}\n\n${formatUpstreamSourceLine(locale)}`,
     );
     return;
   }
@@ -300,6 +458,14 @@ async function handleCommand(chatId: string, text: string, token: string): Promi
 
 interface TelegramUpdate {
   update_id: number;
+  callback_query?: {
+    id: string;
+    data?: string;
+    message?: {
+      message_id: number;
+      chat: { id: number };
+    };
+  };
   message?: {
     message_id: number;
     text?: string;
@@ -313,7 +479,7 @@ export function startTelegramBotListener(): void {
 
   const threeD = Object.values(THREED_BOT_COMMANDS).map((c) => `/${c}`).join(', ');
   log.info(
-    `Telegram bot listener started. Commands: ${Object.values(BOT_COMMANDS).join(', ')}, /${BOT_LANG_COMMANDS.tr}, /${BOT_LANG_COMMANDS.en}, 3D: ${threeD}`,
+    `Telegram bot listener started. Commands: ${Object.values(BOT_COMMANDS).join(', ')}, /${BOT_LANGUAGES_COMMAND}, /${BOT_LANG_COMMANDS.tr}, /${BOT_LANG_COMMANDS.en}, 3D: ${threeD}`,
   );
 
   const pollUpdates = async (): Promise<void> => {
@@ -321,6 +487,7 @@ export function startTelegramBotListener(): void {
       const url = new URL(`https://api.telegram.org/bot${token}/getUpdates`);
       url.searchParams.set('timeout', '30');
       url.searchParams.set('offset', String(offset));
+      url.searchParams.set('allowed_updates', JSON.stringify(['message', 'callback_query']));
 
       const response = await fetch(url);
       if (!response.ok) {
@@ -343,6 +510,20 @@ export function startTelegramBotListener(): void {
 
       for (const update of body.result) {
         offset = update.update_id + 1;
+
+        if (update.callback_query) {
+          const cbChatId = update.callback_query.message?.chat.id;
+          if (!isAuthorizedChat(cbChatId)) {
+            log.warn(`Ignored callback from unauthorized chat ${cbChatId ?? 'unknown'}`);
+            await answerCallbackQuery(update.callback_query.id);
+            continue;
+          }
+
+          log.info(`Callback received: ${update.callback_query.data ?? '(empty)'}`);
+          await handleCallbackQuery(update.callback_query, token);
+          continue;
+        }
+
         const msg = update.message;
         if (!msg?.text || !msg.text.startsWith('/')) continue;
 
@@ -364,6 +545,7 @@ export function startTelegramBotListener(): void {
   };
 
   void clearTelegramWebhook(token).then(async () => {
+    await registerTelegramBotProfile(token);
     await registerTelegramBotCommands(token);
     void pollUpdates();
   });

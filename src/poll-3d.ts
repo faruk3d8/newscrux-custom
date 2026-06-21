@@ -29,7 +29,7 @@ import {
   getTokenSessionTotals,
   logTokenSessionSummary,
 } from './token-usage.js';
-import { assertThreeDBudgetAvailable, formatThreeDBudgetLine } from './budget-guard.js';
+import { formatMonthlyBudgetLine, maybeNotifyMonthlyBudgetLimit } from './budget-guard.js';
 import { notifyManualPollFinished } from './manual-poll-notify.js';
 import {
   THREED_MAX_RELEVANCE_BATCH,
@@ -103,14 +103,6 @@ export async function pollThreeDAndNotify(options: PollRunOptions = {}): Promise
   };
 
   try {
-    if (!assertThreeDBudgetAvailable()) {
-      log.info('3D poll skipped — monthly budget limit reached');
-      progress.phase('3D: aylık limit aşıldı, atlandı.');
-      finalizePollMetrics(metrics, '3D bütçe limiti');
-      await notifyManualPollFinished(options, metrics, 'completed', Date.now() - startedAt);
-      return;
-    }
-
     log.info(`Starting 3D poll cycle (feeds=${getThreeDFeedCount()})`);
     loadArticleQueue('3d');
 
@@ -141,7 +133,7 @@ export async function pollThreeDAndNotify(options: PollRunOptions = {}): Promise
     const allDiscovered = getEntriesByState('discovered');
     const discovered = allDiscovered.slice(0, THREED_MAX_RELEVANCE_BATCH);
 
-    if (discovered.length > 0 && assertThreeDBudgetAvailable()) {
+    if (discovered.length > 0) {
       progress.phase(`3D AI ilgililik filtresi (${discovered.length})…`);
       const result = await filterThreeDByRelevance(discovered, THREED_RELEVANCE_THRESHOLD);
 
@@ -164,11 +156,6 @@ export async function pollThreeDAndNotify(options: PollRunOptions = {}): Promise
       }
 
       saveArticleQueue();
-    } else if (discovered.length > 0) {
-      log.warn('3D relevance skipped — budget unavailable');
-      for (const entry of discovered) {
-        relevancePassedIds.add(entry.id);
-      }
     }
 
     const eligibleForEnrich = getEntriesByState('discovered').filter((e) =>
@@ -196,7 +183,7 @@ export async function pollThreeDAndNotify(options: PollRunOptions = {}): Promise
     saveArticleQueue();
 
     const toSummarize = getEntriesByState('enriched').slice(0, THREED_MAX_SUMMARIZE);
-    if (toSummarize.length > 0 && assertThreeDBudgetAvailable()) {
+    if (toSummarize.length > 0) {
       progress.phase(
         `3D özetleniyor (${toSummarize.length}, eşzamanlı=${limits.summarizeConcurrency})…`,
       );
@@ -215,8 +202,6 @@ export async function pollThreeDAndNotify(options: PollRunOptions = {}): Promise
         }
       });
       saveArticleQueue();
-    } else if (toSummarize.length > 0) {
-      log.warn('3D summarization skipped — budget limit');
     }
 
     const toSend = getEntriesByState('summarized');
@@ -255,10 +240,11 @@ export async function pollThreeDAndNotify(options: PollRunOptions = {}): Promise
     metrics.queue_failed = counts.failed;
 
     log.info(
-      `3D poll complete: ${metrics.sent} sent, ${metrics.queue_pending} pending | ${formatThreeDBudgetLine()}`,
+      `3D poll complete: ${metrics.sent} sent, ${metrics.queue_pending} pending | ${formatMonthlyBudgetLine()}`,
     );
 
     finalizePollMetrics(metrics, '3D tamamlandı');
+    await maybeNotifyMonthlyBudgetLimit();
     await notifyManualPollFinished(options, metrics, 'completed', Date.now() - startedAt);
   } catch (err) {
     log.error('Error in 3D poll cycle', err);

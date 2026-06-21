@@ -4,6 +4,7 @@ import { sendChatMessage } from './telegram.js';
 import { MANUAL_POLL_COOLDOWN_MINUTES } from './telegram-commands.config.js';
 import { getBotLocale } from './control-state.js';
 import { getBotMessages } from './bot-i18n.js';
+import { maybeNotifyMonthlyBudgetLimit } from './budget-guard.js';
 import { notifyManualPollStarted } from './manual-poll-notify.js';
 import type { PollRunOptions } from './poll-options.js';
 
@@ -94,6 +95,7 @@ export async function runPollSafely(options: PollRunOptions = {}): Promise<boole
     );
     await notifyManualPollStarted({ manual, chatId, fastMode, layer });
     await handler({ manual, chatId, fastMode, layer });
+    await maybeNotifyMonthlyBudgetLimit();
     log.info(manual ? 'Manual poll finished' : 'Scheduled poll finished');
     return true;
   } catch (err) {

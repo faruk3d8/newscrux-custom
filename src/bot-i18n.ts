@@ -1,14 +1,24 @@
 /**
- * Telegram bot UI strings (TR / EN).
- * Command slugs stay English; menu descriptions and replies follow botLocale.
+ * Telegram bot UI strings (all supported content languages).
+ * Command slugs stay English; menu descriptions and replies follow the selected language.
  */
 
-import {
-  THREED_BOT_COMMANDS,
-} from './threed.config.js';
+import { THREED_BOT_COMMANDS } from './threed.config.js';
 import { SCHEDULE_TIMEZONE } from './telegram-commands.config.js';
+import { isSupportedLanguage, type SupportedLanguage } from './i18n.js';
+import {
+  EXTRA_HELP_LINES,
+  EXTRA_MENU_SCHEDULE_TOGGLE,
+  EXTRA_MENU_STATIC,
+  EXTRA_MENU_THREED_TOGGLE,
+  EXTRA_MESSAGES,
+  HELP_HEADERS,
+  LOCALE_BCP47,
+} from './bot-i18n-extra.js';
 
-export type BotLocale = 'tr' | 'en';
+export type BotLocale = SupportedLanguage;
+
+export const BOT_LANGUAGES_COMMAND = 'languages';
 
 export const BOT_LANG_COMMANDS = {
   tr: 'langtr',
@@ -29,10 +39,16 @@ export interface BotMessages {
   statusPaused: string;
   statusRunning: string;
   nextRun: string;
+  startupPollNowHint: string;
   unknownCommand: string;
   unknownCommandHint: string;
-  langSwitched: (locale: BotLocale) => string;
-  langCurrent: (locale: BotLocale) => string;
+  langSwitched: (displayName: string) => string;
+  langCurrent: (displayName: string) => string;
+  langPickerTitle: string;
+  langPickerCloseButton: string;
+  langPickerClosed: string;
+  langSwitchedTo: (displayName: string) => string;
+  contentLangCurrent: (displayName: string) => string;
   threeDEnabled: string;
   threeDDisabled: string;
   threeDManualBlocked: string;
@@ -53,6 +69,11 @@ export interface BotMessages {
   budgetLimitReached: string;
   budgetNearTarget: string;
   budgetLine: (month: string, spent: string, cap: string, suffix: string) => string;
+  monthlyBudgetAlertTitle: string;
+  monthlyBudgetAlertBody: (cap: string, spent: string) => string;
+  scheduleIntervalLine: (minutes: number) => string;
+  scheduleModeHoursLine: (hours: string, timezone: string) => string;
+  controlStateScheduleHint: string;
   sessionSpendUnavailable: string;
   sessionSpendEmpty: string;
   sessionSpend: (usd: string, calls: number, tokens: string) => string;
@@ -82,6 +103,8 @@ export interface BotMessages {
   metricFiltered: string;
   metricQueued: string;
   metricDuration: string;
+  /** Prefix before clickable upstream repo link in /status (e.g. "Ana kaynak") */
+  upstreamSourceLabel: string;
 }
 
 export interface TelegramMenuState {
@@ -103,20 +126,15 @@ const MENU_STATIC: Record<
     { command: 'status', description: 'About' },
     { command: 'pollnow', description: 'Search now' },
   ],
+  ...EXTRA_MENU_STATIC,
 };
 
-const MENU_LANG_TOGGLE: Record<
-  BotLocale,
-  { toTr: { command: string; description: string }; toEn: { command: string; description: string } }
-> = {
-  tr: {
-    toTr: { command: BOT_LANG_COMMANDS.tr, description: 'Dili Türkçe yap' },
-    toEn: { command: BOT_LANG_COMMANDS.en, description: 'Dili İngilizce yap' },
-  },
-  en: {
-    toTr: { command: BOT_LANG_COMMANDS.tr, description: 'Set language to Turkish' },
-    toEn: { command: BOT_LANG_COMMANDS.en, description: 'Set language to English' },
-  },
+const MENU_LANGUAGES: Record<BotLocale, { command: string; description: string }> = {
+  tr: { command: BOT_LANGUAGES_COMMAND, description: 'Dil seç' },
+  en: { command: BOT_LANGUAGES_COMMAND, description: 'Choose language' },
+  de: { command: BOT_LANGUAGES_COMMAND, description: 'Sprache wählen' },
+  fr: { command: BOT_LANGUAGES_COMMAND, description: 'Choisir la langue' },
+  es: { command: BOT_LANGUAGES_COMMAND, description: 'Elegir idioma' },
 };
 
 const MENU_SCHEDULE_TOGGLE: Record<
@@ -131,6 +149,7 @@ const MENU_SCHEDULE_TOGGLE: Record<
     pause: { command: 'pause', description: 'Stop scheduled searches' },
     resume: { command: 'resume', description: 'Resume scheduled searches' },
   },
+  ...EXTRA_MENU_SCHEDULE_TOGGLE,
 };
 
 const MENU_THREED_TOGGLE: Record<
@@ -145,6 +164,7 @@ const MENU_THREED_TOGGLE: Record<
     enable: { command: THREED_BOT_COMMANDS.enable, description: 'Turn on 3D AI news' },
     disable: { command: THREED_BOT_COMMANDS.disable, description: 'Turn off 3D AI news' },
   },
+  ...EXTRA_MENU_THREED_TOGGLE,
 };
 
 const HELP_LINES: Record<BotLocale, ReadonlyArray<{ cmd: string; desc: string }>> = {
@@ -154,6 +174,7 @@ const HELP_LINES: Record<BotLocale, ReadonlyArray<{ cmd: string; desc: string }>
     { cmd: '/pause', desc: 'Planlı aramaları durdur' },
     { cmd: '/resume', desc: 'Planlı aramaları sürdür' },
     { cmd: '/commands', desc: 'Komutları listele' },
+    { cmd: `/${BOT_LANGUAGES_COMMAND}`, desc: 'Dil seç' },
     { cmd: `/${THREED_BOT_COMMANDS.enable}`, desc: 'Aramayı aç' },
     { cmd: `/${THREED_BOT_COMMANDS.disable}`, desc: 'Aramayı kapat' },
   ],
@@ -163,9 +184,11 @@ const HELP_LINES: Record<BotLocale, ReadonlyArray<{ cmd: string; desc: string }>
     { cmd: '/pause', desc: 'Stop scheduled searches' },
     { cmd: '/resume', desc: 'Resume scheduled searches' },
     { cmd: '/commands', desc: 'List commands' },
+    { cmd: `/${BOT_LANGUAGES_COMMAND}`, desc: 'Choose language' },
     { cmd: `/${THREED_BOT_COMMANDS.enable}`, desc: 'Turn searches on' },
     { cmd: `/${THREED_BOT_COMMANDS.disable}`, desc: 'Turn searches off' },
   ],
+  ...EXTRA_HELP_LINES,
 };
 
 const MESSAGES: Record<BotLocale, BotMessages> = {
@@ -182,13 +205,17 @@ const MESSAGES: Record<BotLocale, BotMessages> = {
     rateLimited: 'Çok fazla komut. Lütfen bir dakika bekleyin.',
     statusPaused: 'Durum: Duraklatıldı',
     statusRunning: 'Durum: Aktif',
-    nextRun: 'Sonraki zamanlanmış arama',
+    nextRun: 'Sonraki arama',
+    startupPollNowHint: 'Hemen arama için /pollnow kullanın.',
     unknownCommand: 'Bilinmeyen komut. Bkz.',
     unknownCommandHint: '/commands',
-    langSwitched: (locale) =>
-      locale === 'tr' ? 'Dil TR olarak ayarlandı 🇹🇷' : 'Language set to EN 🇬🇧',
-    langCurrent: (locale) =>
-      locale === 'tr' ? 'Mevcut dil: Türkçe 🇹🇷' : 'Current language: English 🇬🇧',
+    langSwitched: (displayName) => `Menü ve bildirim dili ${displayName} olarak ayarlandı.`,
+    langCurrent: (displayName) => `Dil: ${displayName}`,
+    langPickerTitle: '🌍 Dil seçin — özet ve bildirimler bu dilde gönderilir:',
+    langPickerCloseButton: '✖ Kapat',
+    langPickerClosed: 'Dil menüsü kapatıldı.',
+    langSwitchedTo: (displayName) => `Dil ayarlandı: ${displayName}`,
+    contentLangCurrent: (displayName) => `Dil: ${displayName}`,
     threeDEnabled: '🧊 3D AI haber katmanı açıldı.',
     threeDDisabled: '🧊 3D AI haber katmanı kapatıldı.',
     threeDManualBlocked:
@@ -207,10 +234,17 @@ const MESSAGES: Record<BotLocale, BotMessages> = {
     tokens: 'Token',
     openRouterCredit: 'OpenRouter kredi',
     error: 'Hata',
-    budgetLimitReached: ' — LİMİT AŞILDI',
+    budgetLimitReached: ' — limit aşıldı (uyarı; aramalar durmaz)',
     budgetNearTarget: ' — hedefe yakın',
     budgetLine: (month, spent, cap, suffix) =>
-      `3D maliyet (${month}): ~$${spent} / $${cap}${suffix}`,
+      `Aylık LLM (${month}): ~$${spent} / $${cap}${suffix}`,
+    monthlyBudgetAlertTitle: '⚠️ Aylık bütçe limiti',
+    monthlyBudgetAlertBody: (cap, spent) =>
+      `Aylık belirlenen $${cap} limitine ulaşıldı (tahmini harcama ~$${spent}). Aşım yapmamak için aramaları duraklatın: data/control-state.json içinde "paused": true veya /pause.`,
+    scheduleIntervalLine: (minutes) => `Aralık: her ${minutes} dk`,
+    scheduleModeHoursLine: (hours, timezone) => `Program (${timezone}): ${hours}`,
+    controlStateScheduleHint:
+      'Zamanlama: data/control-state.json — scheduleMode "hours"|"interval", pollIntervalMinutes 15|30|60',
     sessionSpendUnavailable: 'Oturum harcaması: kullanılamıyor',
     sessionSpendEmpty: 'Oturum harcaması: ~$0.000 (henüz LLM çağrısı yok)',
     sessionSpend: (usd, calls, tokens) =>
@@ -245,6 +279,7 @@ const MESSAGES: Record<BotLocale, BotMessages> = {
     metricFiltered: 'filtrelenen',
     metricQueued: 'kuyrukta',
     metricDuration: 'süre',
+    upstreamSourceLabel: 'Ana kaynak',
   },
   en: {
     unauthorized: 'You are not authorized to use this bot.',
@@ -259,13 +294,17 @@ const MESSAGES: Record<BotLocale, BotMessages> = {
     rateLimited: 'Too many commands. Please wait a minute.',
     statusPaused: 'Status: Paused',
     statusRunning: 'Status: Active',
-    nextRun: 'Next scheduled poll',
+    nextRun: 'Next poll',
+    startupPollNowHint: 'Use /pollnow for an immediate search.',
     unknownCommand: 'Unknown command. See',
     unknownCommandHint: '/commands',
-    langSwitched: (locale) =>
-      locale === 'tr' ? 'Dil TR olarak ayarlandı 🇹🇷' : 'Language set to EN 🇬🇧',
-    langCurrent: (locale) =>
-      locale === 'tr' ? 'Mevcut dil: Türkçe 🇹🇷' : 'Current language: English 🇬🇧',
+    langSwitched: (displayName) => `Menu and notification language set to ${displayName}.`,
+    langCurrent: (displayName) => `Language: ${displayName}`,
+    langPickerTitle: 'Choose language — summaries and notifications will use this language:',
+    langPickerCloseButton: '✖ Close',
+    langPickerClosed: 'Language menu closed.',
+    langSwitchedTo: (displayName) => `Language set to ${displayName}`,
+    contentLangCurrent: (displayName) => `Language: ${displayName}`,
     threeDEnabled: '🧊 3D AI news layer enabled.',
     threeDDisabled: '🧊 3D AI news layer disabled.',
     threeDManualBlocked:
@@ -284,10 +323,17 @@ const MESSAGES: Record<BotLocale, BotMessages> = {
     tokens: 'Tokens',
     openRouterCredit: 'OpenRouter credit',
     error: 'Error',
-    budgetLimitReached: ' — LIMIT REACHED',
+    budgetLimitReached: ' — limit reached (alert only; polls continue)',
     budgetNearTarget: ' — near target',
     budgetLine: (month, spent, cap, suffix) =>
-      `3D cost (${month}): ~$${spent} / $${cap}${suffix}`,
+      `Monthly LLM (${month}): ~$${spent} / $${cap}${suffix}`,
+    monthlyBudgetAlertTitle: '⚠️ Monthly budget limit',
+    monthlyBudgetAlertBody: (cap, spent) =>
+      `Monthly limit of $${cap} reached (estimated spend ~$${spent}). To avoid overspending, pause searches: set "paused": true in data/control-state.json or use /pause.`,
+    scheduleIntervalLine: (minutes) => `Interval: every ${minutes} min`,
+    scheduleModeHoursLine: (hours, timezone) => `Schedule (${timezone}): ${hours}`,
+    controlStateScheduleHint:
+      'Scheduling: data/control-state.json — scheduleMode "hours"|"interval", pollIntervalMinutes 15|30|60',
     sessionSpendUnavailable: 'Session spend: unavailable',
     sessionSpendEmpty: 'Session spend: ~$0.000 (no LLM calls yet)',
     sessionSpend: (usd, calls, tokens) =>
@@ -322,11 +368,13 @@ const MESSAGES: Record<BotLocale, BotMessages> = {
     metricFiltered: 'filtered',
     metricQueued: 'queued',
     metricDuration: 'duration',
+    upstreamSourceLabel: 'Upstream',
   },
+  ...EXTRA_MESSAGES,
 };
 
 export function isBotLocale(value: string): value is BotLocale {
-  return value === 'tr' || value === 'en';
+  return isSupportedLanguage(value);
 }
 
 export function getBotMessages(locale: BotLocale): BotMessages {
@@ -340,44 +388,56 @@ export function getTelegramMenuCommands(
   command: string;
   description: string;
 }> {
-  const lang =
-    locale === 'tr' ? MENU_LANG_TOGGLE[locale].toEn : MENU_LANG_TOGGLE[locale].toTr;
   const schedule = state.paused
     ? MENU_SCHEDULE_TOGGLE[locale].resume
     : MENU_SCHEDULE_TOGGLE[locale].pause;
   const threeD = state.threeDNewsEnabled
     ? MENU_THREED_TOGGLE[locale].disable
     : MENU_THREED_TOGGLE[locale].enable;
-  return [...MENU_STATIC[locale], lang, schedule, threeD];
+  return [...MENU_STATIC[locale], MENU_LANGUAGES[locale], schedule, threeD];
 }
 
 export function formatCommandsHelp(locale: BotLocale): string {
-  const langToggle =
-    locale === 'tr' ? MENU_LANG_TOGGLE.tr.toEn : MENU_LANG_TOGGLE.en.toTr;
-  const langLine = { cmd: `/${langToggle.command}`, desc: langToggle.description };
-  const lines = [...HELP_LINES[locale], langLine].map((h) => `${h.cmd} — ${h.desc}`);
-  return `📋 Commands — Komutlar:\n\n${lines.join('\n')}`;
+  const lines = HELP_LINES[locale].map((h) => `${h.cmd} — ${h.desc}`);
+  return `${HELP_HEADERS[locale]}\n\n${lines.join('\n')}`;
 }
 
 export function formatPollDurationShort(ms: number, locale: BotLocale): string {
   const sec = Math.round(ms / 1000);
   if (sec < 60) {
-    return locale === 'tr' ? `${sec} sn` : `${sec}s`;
+    switch (locale) {
+      case 'tr':
+        return `${sec} sn`;
+      case 'de':
+        return `${sec} Sek.`;
+      case 'fr':
+        return `${sec} s`;
+      case 'es':
+        return `${sec} s`;
+      default:
+        return `${sec}s`;
+    }
   }
   const min = Math.floor(sec / 60);
   const rem = sec % 60;
-  if (locale === 'tr') {
-    return rem > 0 ? `${min} dk ${rem} sn` : `${min} dk`;
+  switch (locale) {
+    case 'tr':
+      return rem > 0 ? `${min} dk ${rem} sn` : `${min} dk`;
+    case 'de':
+      return rem > 0 ? `${min} Min. ${rem} Sek.` : `${min} Min.`;
+    case 'fr':
+      return rem > 0 ? `${min} min ${rem} s` : `${min} min`;
+    case 'es':
+      return rem > 0 ? `${min} min ${rem} s` : `${min} min`;
+    default:
+      return rem > 0 ? `${min}m ${rem}s` : `${min}m`;
   }
-  return rem > 0 ? `${min}m ${rem}s` : `${min}m`;
 }
 
 export function localeDateTimeString(isoOrMs: string | number, locale: BotLocale): string {
-  const loc = locale === 'tr' ? 'tr-TR' : 'en-US';
-  return new Date(isoOrMs).toLocaleString(loc, { timeZone: SCHEDULE_TIMEZONE });
+  return new Date(isoOrMs).toLocaleString(LOCALE_BCP47[locale], { timeZone: SCHEDULE_TIMEZONE });
 }
 
 export function localeNumber(n: number, locale: BotLocale): string {
-  const loc = locale === 'tr' ? 'tr-TR' : 'en-US';
-  return n.toLocaleString(loc);
+  return n.toLocaleString(LOCALE_BCP47[locale]);
 }

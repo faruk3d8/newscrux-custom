@@ -90,6 +90,6 @@ fi
 echo ""
 echo "=== elle test (servisi durdurur) ==="
 echo "  systemctl --user stop newscrux"
-echo "  cd ~/newscrux-custom && node dist/index.js --lang=tr"
+echo "  cd ~/newscrux-custom && node dist/index.js --lang=en"
 echo ""
 echo "Log izle: tail -f ${LOG_FILE}"

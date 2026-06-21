@@ -2,9 +2,9 @@
 // Düzenlemek için bu dosyayı veya .env içindeki THREED_* değişkenlerini kullanın.
 
 import type { FeedConfig } from './types.js';
+import { SCHEDULE_TIMEZONE } from './schedule.config.js';
 
-/** Same as telegram-commands.config SCHEDULE_TIMEZONE (avoid circular import) */
-const SCHEDULE_TIMEZONE = 'Europe/Istanbul';
+export { SCHEDULE_TIMEZONE as THREED_SCHEDULE_TIMEZONE };
 
 /** Telegram command names (no slash, no spaces) */
 export const THREED_BOT_COMMANDS = {
@@ -14,7 +14,7 @@ export const THREED_BOT_COMMANDS = {
   poll: process.env.THREED_COMMAND_POLL ?? 'poll3d',
 } as const;
 
-/** Otomatik 3D aramasının çalışacağı saat (Europe/Istanbul, telegram-commands.config ile aynı timezone) */
+/** Otomatik 3D aramasının çalışacağı saat (SCHEDULE_TIMEZONE ile aynı IANA timezone) */
 export const THREED_SCHEDULE_HOUR = parseInt(process.env.THREED_SCHEDULE_HOUR ?? '12', 10);
 
 /** Günlük özet tavanı (3D katmanı) */

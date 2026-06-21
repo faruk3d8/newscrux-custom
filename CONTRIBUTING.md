@@ -12,7 +12,7 @@ Thank you for improving Newscrux-Custom.
 ## Code style
 
 - TypeScript strict mode; ESM imports with `.js` extensions in `src/`.
-- Avoid circular imports between config modules (`threed.config.ts` must not import `telegram-commands.config.ts` or `control-state.ts`).
+- Avoid circular imports between config modules (`threed.config.ts` imports `schedule.config.ts`, not `telegram-commands.config.ts` or `control-state.ts`).
 - Use `safeHttpFetch` for any new outbound HTTP to RSS/article URLs.
 
 ## Reporting issues

@@ -5,9 +5,13 @@
 
 import { THREED_BOT_COMMANDS } from './threed.config.js';
 
-export const SCHEDULE_TIMEZONE = 'Europe/Istanbul';
-
-export const SCHEDULE_HOURS = [12, 20] as const;
+export {
+  SCHEDULE_TIMEZONE,
+  SCHEDULE_HOURS,
+  DEFAULT_SCHEDULE_TIMEZONE,
+  DEFAULT_SCHEDULE_HOURS,
+  applyStartupScheduleOverrides,
+} from './schedule.config.js';
 
 export const MANUAL_POLL_COOLDOWN_MINUTES = 15;
 

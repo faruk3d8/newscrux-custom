@@ -31,7 +31,7 @@ else
   echo "(log henüz yok — servis bir kez daha denesin)"
   systemctl --user restart newscrux
   sleep 3
-  tail -n 40 "${REPO}/data/service.log" 2>/dev/null || echo "Hâlâ log yok; elle: node dist/index.js --lang=tr"
+  tail -n 40 "${REPO}/data/service.log" 2>/dev/null || echo "Hâlâ log yok; elle: node dist/index.js --lang=en"
 fi
 
 echo ""

@@ -1,28 +1,23 @@
-!Proje ve proje sayfası düzenlenmeye devam etmektedir.
-
 # Newscrux-Custom
 
-> Yapay zekâ destekli haber toplayıcı: çok dilli yapılandırılmış özetler, Telegram bot kontrolü ve zamanlanmış tarama
+> Yapay zekâ destekli haber toplayıcı: çok dilli yapılandırılmış özetler, Telegram bot kontrolü ve zamanlanmış tarama.
 
-[![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?style=flat&logo=nodedotjs&logoColor=white)](https://nodejs.org)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178C6?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat)](LICENSE)
-[![Languages](https://img.shields.io/badge/Languages-5-orange?style=flat)](src/i18n.ts)
-[![GitHub](https://img.shields.io/badge/GitHub-faruk3d8-181717?style=flat&logo=github)](https://github.com/faruk3d8/newscrux-custom)
+[Node.js](https://nodejs.org)
+[TypeScript](https://www.typescriptlang.org)
+[License: MIT](LICENSE)
+[Languages](src/i18n.ts)
 
-**Fork kaynağı:** [alicankiraz1/newscrux](https://github.com/alicankiraz1/newscrux) — orijinal proje Pushover bildirimleri ve interval tabanlı zamanlama kullanır. Bu sürüm Telegram bot kontrolü, sabit saatler, 3D/CAD haber katmanı ve Raspberry Pi dağıtım araçları ekler.
+**Fork kaynağı:** [alicankiraz1/newscrux](https://github.com/alicankiraz1/newscrux)
 
 ---
 
 ## Ne Yapar?
 
-Newscrux-Custom, AI/ML RSS kaynaklarını izler, makaleleri yapay zekâ ile ilgi açısından filtreler, gerekirse tam metin çıkarır, seçtiğiniz dilde yapılandırılmış özet üretir ve **Telegram** üzerinden HTML mesaj olarak iletir.
+Newscrux-Custom, AI/ML RSS kaynaklarını izler (`full` profilde 13, `minimal` profilde 5), makaleleri yapay zekâ ile ilgi açısından filtreler, gerekirse tam metin çıkarır, seçtiğiniz dilde yapılandırılmış özet üretir ve bildirimleri **[Telegram](https://telegram.org)** üzerinden telefonunuza iletir.
 
-Her bildirim **ne oldu**, **neden önemli** ve **önemli bir detay** içerir — İngilizce, Türkçe, Almanca, Fransızca veya İspanyolca.
+Her bildirim **ne oldu**, **neden önemli** ve **tek bir önemli detay** içerir — İngilizce, Türkçe, Almanca, Fransızca veya İspanyolca.
 
-Bot komutlarıyla zamanlanmış taramayı duraklatabilir, manuel poll başlatabilir, durumu ve kredi kullanımını görebilirsiniz. İsteğe bağlı **3D/CAD AI haber katmanı** ayrı kaynaklar ve aylık bütçe sınırı ile çalışır (açıkken günlük otomatik tarama).
-
-Varsayılan otomatik tarama (Europe/Istanbul): **12:00** ve **20:00**.
+İsteğe bağlı **3D AI haber araması** varsayılan olarak kapalıdır; açıldığında ana akıştan bağımsız RSS, GitHub ve arXiv kaynaklarını tarar, özetleyip Telegram’a iletir.
 
 ---
 
@@ -44,25 +39,22 @@ ortak bir temelde değerlendirmeye yardımcı olabilir.
 💡 200.000 dolar ödüllü Kaggle hackathonu başlatıldı.
 ```
 
-Mesajlar Telegram'da HTML biçiminde gönderilir. Bot arayüz dili `/langtr` ve `/langen` ile ayrı ayarlanabilir; özet dili `--lang` ile belirlenir.
-
 ---
 
 ## Özellikler
 
 - 🌍 **5 dil** — `--lang` ile özet dili: `en`, `tr`, `de`, `fr`, `es`
 - 🧠 **Yapılandırılmış özetler** — Ne oldu + Neden önemli + Ana detay (DeepSeek / OpenRouter)
-- 📰 **RSS profilleri** — `minimal` (5 kaynak) veya `full` (13 kaynak)
-- 🔍 **AI ilgi filtresi** — Düşük puanlı makaleler özetlenmeden elenir
-- 📄 **Hibrit içerik çıkarma** — Önce RSS özeti, kısaysa güvenli HTTP ile tam metin
+- 📰 **13 RSS kaynağı** — OpenAI, Google AI, DeepMind, TechCrunch, arXiv ve daha fazlası
+- 🔍  **Yapay zeka alaka düzeyi filtrelemesi** — Yalnızca önemli haberleri sunar; alakasız makaleler özetlemeden önce bırakılır.
+- 📄 **Hibrit içerik çıkarma** — önce RSS snippet, snippet çok kısa olduğunda tam metin kazıma (cheerio aracılığıyla)
 - ⚡ **Makale durum hattı** — `discovered → enriched → summarized → sent`, kalıcı kuyruk
 - 🔒 **Veri kaybı yok** — Atomik kuyruk yazımı, yeniden deneme, yeniden başlatmada devam
 - 📊 **Operasyon metrikleri** — Döngü istatistikleri log ve `/status` komutu
 - 🤖 **Telegram bot** — Duraklat/devam, manuel poll (`/pollnow`), yetkili sohbet kilidi
-- ⏰ **Saat bazlı zamanlama** — Interval yerine İstanbul saatiyle sabit saatler
+- ⏰ **Esnek zamanlama** — Sabit saatler (`SCHEDULE_HOURS`) veya 15/30/60 dk aralık (`data/control-state.json`)
 - 🛡️ **SSRF koruması** — Özel IP ve güvensiz yönlendirmeler engellenir
-- 🎮 **3D AI katmanı** (isteğe bağlı) — Ayrı RSS/GitHub/arXiv, aylık bütçe guard
-- 🍓 **Raspberry Pi / systemd** — Kullanıcı birimi, deploy script, dosya logu
+- 🎮 **3D AI katmanı** (isteğe bağlı) — Ayrı RSS/GitHub/arXiv
 
 ---
 
@@ -70,22 +62,7 @@ Mesajlar Telegram'da HTML biçiminde gönderilir. Bot arayüz dili `/langtr` ve 
 
 Bu bölüm, [alicankiraz1/newscrux](https://github.com/alicankiraz1/newscrux) ile **newscrux-custom** arasındaki ana farkları özetler. Tam analiz: [docs/UPSTREAM-KARSILASTIRMA-RAPORU.txt](docs/UPSTREAM-KARSILASTIRMA-RAPORU.txt).
 
-| Konu | Orijinal newscrux | newscrux-custom |
-|------|-------------------|-----------------|
-| Bildirim | [Pushover](https://pushover.net) | **Telegram Bot API** (HTML) |
-| Zamanlama | `POLL_INTERVAL_MINUTES` (ör. 15 dk döngü) | **Sabit saatler** (varsayılan 12:00, 20:00 IST) |
-| Kullanıcı etkileşimi | Yok | **Bot komutları** (`/pause`, `/pollnow`, `/status`, …) |
-| Kimlik doğrulama | Pushover anahtarları | `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` |
-| RSS profili | 13 kaynak (sabit) | **`minimal` (5) veya `full` (13)** |
-| Güvenlik (HTTP) | Standart fetch | **`url-security.ts`** (SSRF koruması) |
-| 3D / CAD haberleri | Yok | **İsteğe bağlı katman** + bütçe limiti |
-| Maliyet izleme | Yok | Token log, OpenRouter kredi uyarısı |
-| Dağıtım | Manuel systemd | **install-systemd.sh**, **deploy-to-pi.sh** |
-| Bot arayüz dili | Yok | TR/EN (`src/bot-i18n.ts`) |
-
-**Değişmeyenler:** Aynı npm bağımlılık seti, aynı özet pipeline mantığı, aynı 5 dil paketi (`src/i18n.ts`), MIT lisans.
-
-**Ayarları nerede değiştirirsiniz?** Komut adları ve saatler → [CONFIGURATION.md](CONFIGURATION.md) ve `src/telegram-commands.config.ts`. Ortam değişkenleri → `.env` (şablon: `.env.example`).
+Ayrıntılar: [CONFIGURATION.md](CONFIGURATION.md).
 
 ---
 
@@ -97,7 +74,7 @@ cd newscrux-custom
 npm install
 cp .env.example .env        # OpenRouter + Telegram bilgilerinizi girin
 npm run build
-npm start -- --lang=tr      # veya: en, de, fr, es
+npm start -- --lang=en      # veya: tr, de, fr, es (varsayılan: en)
 ```
 
 **Gereksinimler (Prerequisites):**
@@ -105,8 +82,6 @@ npm start -- --lang=tr      # veya: en, de, fr, es
 - [Node.js 18+](https://nodejs.org)
 - [OpenRouter API anahtarı](https://openrouter.ai/keys)
 - Telegram bot token ([@BotFather](https://t.me/BotFather)) ve sayısal **chat ID**
-
-`.env` ve `data/` dizinini asla commit etmeyin (`.gitignore` içinde). Sunucuda: `chmod 600 .env`.
 
 ---
 
@@ -145,20 +120,22 @@ RSS Kaynakları (minimal veya full profil)
   Zamanlayıcı (Europe/Istanbul)  ←→  Telegram bot (komutlar, yetki)
         │
         ▼
-  (İsteğe bağlı) 3D katman — ayrı kuyruk, bütçe guard, günlük otomatik saat
+  (İsteğe bağlı) 3D katman — ayrı kuyruk, aylık harcama uyarısı, günlük otomatik saat
 ```
 
 ---
 
 ## Desteklenen Diller
 
-| Kod | Dil | Bildirim etiketleri (örnek) |
-|-----|-----|----------------------------|
-| `en` | İngilizce | "What happened:" / "Why it matters:" |
-| `tr` | Türkçe | "Ne oldu:" / "Neden önemli:" |
-| `de` | Almanca | "Was passiert ist:" / "Warum es wichtig ist:" |
-| `fr` | Fransızca | "Ce qui s'est passé :" / "Pourquoi c'est important :" |
-| `es` | İspanyolca | "Qué pasó:" / "Por qué importa:" |
+
+| Kod  | Dil        | Bildirim etiketleri (örnek)                           |
+| ---- | ---------- | ----------------------------------------------------- |
+| `en` | İngilizce  | "What happened:" / "Why it matters:"                  |
+| `tr` | Türkçe     | "Ne oldu:" / "Neden önemli:"                          |
+| `de` | Almanca    | "Was passiert ist:" / "Warum es wichtig ist:"         |
+| `fr` | Fransızca  | "Ce qui s'est passé :" / "Pourquoi c'est important :" |
+| `es` | İspanyolca | "Qué pasó:" / "Por qué importa:"                      |
+
 
 Her dil paketi AI sistem prompt'u, kaynak türü etiketleri ve bildirim metinlerini içerir.
 
@@ -170,53 +147,96 @@ Detaylı rehber: **[CONFIGURATION.md](CONFIGURATION.md)** — komut slug'ları, 
 
 ### CLI seçenekleri
 
-| Bayrak | Açıklama | Varsayılan |
-|--------|----------|------------|
-| `--lang`, `-l` | Özet dili: `en`, `tr`, `de`, `fr`, `es` | `tr` (veya `data/control-state.json`) |
-| `--help`, `-h` | Yardım | — |
-| `--version`, `-v` | Sürüm | — |
+Orijinal [newscrux](https://github.com/alicankiraz1/newscrux) ile aynı `--help` / `--version` yapısı; bu fork ek olarak zamanlama bayrakları sunar.
 
-**Örnekler:**
+
+| Bayrak               | Açıklama                                                                              | Varsayılan                                                        |
+| -------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `--lang`, `-l`       | Özet dili: `en`, `tr`, `de`, `fr`, `es`                                               | `en` (ilk kurulum; `data/control-state.json` varsa oradan okunur) |
+| `--tz`, `--timezone` | Otomatik tarama saat dilimi (IANA, örn. `Europe/Istanbul`)                            | `Europe/Istanbul`                                                 |
+| `--schedule-hours`   | Günlük tarama saatleri, virgülle (0–23)                                               | `12,20`                                                           |
+| `--3d-on`            | İsteğe bağlı **3D AI haber katmanını** açar (`data/control-state.json` içine yazılır) | kapalı (varsayılan)                                               |
+| `--3d-off`           | 3D AI haber katmanını kapatır                                                         | —                                                                 |
+| `--help`, `-h`       | Yardım                                                                                | —                                                                 |
+| `--version`, `-v`    | Sürüm                                                                                 | —                                                                 |
+
+
+**Öncelik:** CLI bayrakları → `.env` (`SCHEDULE_`*, `THREED_`*) → derlenmiş varsayılanlar.
+
+**3D katman:** Ana RSS akışından bağımsız, **varsayılan olarak kapalıdır**. Açmak için başlangıçta `--3d-on`, çalışırken Telegram `/3dainewsopen`, veya kalıcı durum `data/control-state.json` (`threeDNewsEnabled: true`). Kapatmak için `--3d-off` veya `/3dainewsclose`. Açıkken günlük otomatik tarama `THREED_SCHEDULE_HOUR` saatinde (varsayılan 12:00, `SCHEDULE_TIMEZONE` ile aynı IANA) çalışır.
+
+**Yerel örnekler:**
 
 ```bash
-npm start -- --lang=tr
-npm start -- -l de
-npm start                    # varsayılan Türkçe
+npm start -- --help
+npm start -- --lang=en
+npm start -- --lang=tr --tz=Europe/Istanbul --schedule-hours=12,20
+npm start -- --3d-on              # 3D haber taramasını aç
+npm start -- --3d-off             # 3D haber taramasını kapat
+npm start                    # varsayılan: en, Europe/Istanbul 12:00 ve 20:00; 3D kapalı
 ```
+
+**SSH üzerinden test (Raspberry Pi / uzak sunucu):**
+
+```bash
+# Yardım ve sürüm
+ssh pi@raspberrypi.local 'cd ~/newscrux-custom && node dist/index.js --help'
+ssh pi@raspberrypi.local 'cd ~/newscrux-custom && node dist/index.js --version'
+
+# Ön planda kısa test (Ctrl+C ile durdurun; systemd servisini durdurmadan)
+ssh pi@raspberrypi.local 'cd ~/newscrux-custom && node dist/index.js --lang=en --tz=Europe/Istanbul --schedule-hours=12,20'
+ssh pi@raspberrypi.local 'cd ~/newscrux-custom && node dist/index.js --3d-on'
+
+# Servis durumu ve log
+ssh pi@raspberrypi.local 'systemctl --user status newscrux'
+ssh pi@raspberrypi.local 'journalctl --user -u newscrux -n 50 --no-pager'
+ssh pi@raspberrypi.local 'tail -f ~/newscrux-custom/data/service.log'
+```
+
+Deploy script ile tek komutta: `./scripts/deploy-to-pi.sh pi@raspberrypi.local`
 
 ### Ortam değişkenleri (`.env`)
 
-| Değişken | Zorunlu | Varsayılan | Açıklama |
-|----------|---------|------------|----------|
-| `OPENROUTER_API_KEY` | Evet | — | OpenRouter API anahtarı |
-| `TELEGRAM_BOT_TOKEN` | Evet | — | BotFather token |
-| `TELEGRAM_CHAT_ID` | Evet | — | Botu kullanabilecek sohbet ID |
-| `OPENROUTER_MODEL` | Hayır | `deepseek/deepseek-v3.2-speciale` | Özet modeli |
-| `FEED_PROFILE` | Hayır | `full` | `minimal` (5) veya `full` (13) kaynak |
-| `MAX_ARTICLES_PER_POLL` | Hayır | `5` | Döngü başına makale limiti |
-| `ARXIV_MAX_PER_POLL` | Hayır | `8` | Döngü başına arXiv limiti |
-| `RELEVANCE_THRESHOLD` | Hayır | `7` | Minimum ilgi puanı (1–10) |
-| `LOG_LEVEL` | Hayır | `info` | `debug`, `info`, `warn`, `error` |
 
-**Otomatik tarama saatleri** `.env` içinde değil; `src/telegram-commands.config.ts` dosyasındadır (`SCHEDULE_HOURS`, `SCHEDULE_TIMEZONE`).
+| Değişken                | Zorunlu | Varsayılan                        | Açıklama                                |
+| ----------------------- | ------- | --------------------------------- | --------------------------------------- |
+| `OPENROUTER_API_KEY`    | Evet    | —                                 | OpenRouter API anahtarı                 |
+| `TELEGRAM_BOT_TOKEN`    | Evet    | —                                 | BotFather token                         |
+| `TELEGRAM_CHAT_ID`      | Evet    | —                                 | Botu kullanabilecek sohbet ID           |
+| `OPENROUTER_MODEL`      | Hayır   | `deepseek/deepseek-v3.2-speciale` | Özet modeli                             |
+| `FEED_PROFILE`          | Hayır   | `full`                            | `minimal` (5) veya `full` (13) kaynak   |
+| `MAX_ARTICLES_PER_POLL` | Hayır   | `5`                               | Döngü başına makale limiti              |
+| `ARXIV_MAX_PER_POLL`    | Hayır   | `8`                               | Döngü başına arXiv limiti               |
+| `RELEVANCE_THRESHOLD`   | Hayır   | `7`                               | Minimum ilgi puanı (1–10)               |
+| `LOG_LEVEL`             | Hayır   | `info`                            | `debug`, `info`, `warn`, `error`        |
+| `SCHEDULE_TIMEZONE`     | Hayır   | `Europe/Istanbul`                 | Otomatik tarama saat dilimi (IANA)      |
+| `SCHEDULE_HOURS`        | Hayır   | `12,20`                           | Günlük tarama saatleri (0–23, virgülle) |
+
+
+**Zamanlama önceliği:** CLI (`--tz`, `--schedule-hours`) → `.env` → varsayılan. Örnek: `npm start -- --lang=tr --tz=Europe/Berlin --schedule-hours=9,18`
+
+**Komut adları** yalnızca `src/telegram-commands.config.ts` içindedir — bkz. [CONFIGURATION.md](CONFIGURATION.md).
 
 ---
 
 ## Telegram Bot Komutları
 
-| Komut | Açıklama |
-|-------|----------|
-| `/start`, `/help`, `/commands` | Yardım ve komut listesi |
-| `/status` | Zamanlayıcı, kuyruk, kredi, token kullanımı |
-| `/pause`, `/resume` | Zamanlanmış taramayı durdur / devam ettir |
-| `/pollnow` | Tam manuel tarama (alias: `/poll`) |
-| `/langtr`, `/langen` | Bot arayüz dili |
-| `/3dainews` | 3D katman durumu |
-| `/3dainewsopen`, `/3dainewsclose` | 3D katmanı aç / kapat |
+
+| Komut                             | Açıklama                                                                                                                                             |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/start`, `/help`, `/commands`    | Yardım ve komut listesi                                                                                                                              |
+| `/status`                         | Zamanlayıcı, kuyruk, kredi, token kullanımı; altta **Ana kaynak: [newscrux](https://github.com/alicankiraz1/newscrux)** (tıklanabilir upstream link) |
+| `/pause`, `/resume`               | Zamanlanmış taramayı durdur / devam ettir                                                                                                            |
+| `/pollnow`                        | Tam manuel tarama (alias: `/poll`)                                                                                                                   |
+| `/languages`                      | Özet dili seçimi (inline menü: tr–es)                                                                                                                |
+|                                   |                                                                                                                                                      |
+| `/3dainews`                       | 3D katman durumu                                                                                                                                     |
+| `/3dainewsopen`, `/3dainewsclose` | 3D katmanı aç / kapat                                                                                                                                |
+
 
 3D katman açıkken otomatik tarama `THREED_SCHEDULE_HOUR` saatinde (varsayılan 12:00 IST) çalışır — bkz. `src/threed.config.ts`.
 
-Komut adlarını veya saatleri değiştirmek için: `src/telegram-commands.config.ts` — bkz. [CONFIGURATION.md](CONFIGURATION.md).
+Komut adlarını değiştirmek için: `src/telegram-commands.config.ts`. Tarama saatleri ve saat dilimi için `.env` veya CLI — bkz. [CONFIGURATION.md](CONFIGURATION.md).
 
 ---
 
@@ -224,25 +244,59 @@ Komut adlarını veya saatleri değiştirmek için: `src/telegram-commands.confi
 
 `FEED_PROFILE=full` iken 13 kaynak; `minimal` iken 5 kaynak aktiftir.
 
-| Kaynak | Tür | Öncelik |
-|--------|-----|---------|
-| OpenAI News | `official_blog` | yüksek (filtre bypass) |
-| Google AI Blog | `official_blog` | yüksek |
-| Google DeepMind | `official_blog` | yüksek |
-| Hugging Face Blog | `official_blog` | normal |
-| TechCrunch AI | `media` | normal |
-| MIT Technology Review AI | `media` | normal |
-| The Verge AI | `media` | normal |
-| Ars Technica | `media` | normal |
-| arXiv cs.CL / cs.LG / cs.AI | `research` | normal |
-| Import AI | `newsletter` | normal |
-| Ahead of AI | `newsletter` | normal |
+
+| Kaynak                      | Tür             | Öncelik                |
+| --------------------------- | --------------- | ---------------------- |
+| OpenAI News                 | `official_blog` | yüksek (filtre bypass) |
+| Google AI Blog              | `official_blog` | yüksek                 |
+| Google DeepMind             | `official_blog` | yüksek                 |
+| Hugging Face Blog           | `official_blog` | normal                 |
+| TechCrunch AI               | `media`         | normal                 |
+| MIT Technology Review AI    | `media`         | normal                 |
+| The Verge AI                | `media`         | normal                 |
+| Ars Technica                | `media`         | normal                 |
+| arXiv cs.CL / cs.LG / cs.AI | `research`      | normal                 |
+| Import AI                   | `newsletter`    | normal                 |
+| Ahead of AI                 | `newsletter`    | normal                 |
+
 
 Kaynak eklemek veya çıkarmak: `src/feeds.ts` içindeki `ALL_FEEDS` dizisi.
+
+### 3D AI katmanı kaynakları (isteğe bağlı)
+
+Ana akıştan **ayrı** bir haber katmanıdır: mesh / NeRF / CAD / text-to-3D odaklı kaynaklar. **Varsayılan kapalıdır** — yalnızca `--3d-on`, `/3dainewsopen` veya `data/control-state.json` ile açıldığında taranır. Toplam **17** kaynak (`src/threed.config.ts`, `src/feeds-3d.ts`).
+
+
+| Kaynak                           | Tür             | Not                                                |
+| -------------------------------- | --------------- | -------------------------------------------------- |
+| NVIDIA Blog                      | `official_blog` | `THREED_FEED_NVIDIA` ile URL değiştirilebilir      |
+| Stability AI Blog                | `official_blog` |                                                    |
+| Blender Nation                   | `media`         |                                                    |
+| Tripo AI Blog                    | `official_blog` |                                                    |
+| Meshy Blog                       | `official_blog` |                                                    |
+| GitHub: microsoft/TRELLIS        | `release`       | Release atom                                       |
+| GitHub: tencent/Hunyuan3D-2      | `release`       |                                                    |
+| GitHub: tencent/Hunyuan3D-2.1    | `release`       |                                                    |
+| GitHub: VAST-AI-Research/TripoSR | `release`       |                                                    |
+| GitHub: VAST-AI-Research/TripoSG | `release`       |                                                    |
+| GitHub: gudo7208/CAD-Coder       | `release`       | text                                               |
+| GitHub: anniedoris/CAD-Coder     | `release`       | image                                              |
+| arXiv cs.GR                      | `research`      | tüm makaleler                                      |
+| arXiv cs.CV                      | `research`      | `THREED_CS_CV_KEYWORDS` ile filtreli               |
+| Hugging Face Blog                | `official_blog` | ana akışla paylaşımlı (`THREED_SHARED_FEED_NAMES`) |
+| TechCrunch AI                    | `media`         | paylaşımlı                                         |
+| The Verge AI                     | `media`         | paylaşımlı                                         |
+
+
+Kaynak eklemek veya çıkarmak: `src/threed.config.ts` (`THREED_RSS_FEEDS`, `THREED_GITHUB_RELEASE_REPOS`, `THREED_ARXIV_CATEGORIES`, `THREED_SHARED_FEED_NAMES`). Ayrıntılı `.env` anahtarları: [CONFIGURATION.md](CONFIGURATION.md) ve `.env.example`.
 
 ---
 
 ## Dağıtım
+
+Raspberry Pi veya herhangi bir Linux sunucusunda **kullanıcı düzeyi systemd** ile çalışır (root gerekmez). Upstream [newscrux README](https://github.com/alicankiraz1/newscrux#deployment) ile aynı model: birim dosyası `~/.config/systemd/user/`, `systemctl --user enable/start`, `journalctl --user -f`. Bu fork ek olarak `install-systemd.sh`, `deploy-to-pi.sh`, dosya logu (`data/service.log`) ve `loginctl enable-linger` kullanır — SSH oturumu kapalıyken de servis ayakta kalır.
+
+**İlk kurulum varsayılanları:** özet dili **İngilizce (`en`)**, zamanlama **Europe/Istanbul** saatiyle **12:00** ve **20:00** (`.env` veya `SCHEDULE_`* ile değiştirilebilir). systemd biriminde `--lang=…` kullanmayın; dil `data/control-state.json` içinde kalıcıdır ve her yeniden başlatmada üzerine yazılır.
 
 ### Raspberry Pi / Linux (systemd)
 
@@ -252,26 +306,40 @@ git clone https://github.com/faruk3d8/newscrux-custom.git ~/newscrux-custom
 cd ~/newscrux-custom
 npm install
 cp .env.example .env
-nano .env                                       # API anahtarlarını doldurun
+nano .env                                       # OPENROUTER + TELEGRAM bilgilerini doldurun
+chmod 600 .env
 npm run build
 
-# 2. Servisi kur (script veya manuel)
+# 2. Servisi kur (önerilen)
 ./scripts/install-systemd.sh
-# veya:
-# cp newscrux.service ~/.config/systemd/user/
-# nano ~/.config/systemd/user/newscrux.service   # --lang gerekirse
 
-# 3. Etkinleştir ve başlat (kullanıcı düzeyi systemd)
+# Manuel kurulum (upstream ile aynı akış):
+# mkdir -p ~/.config/systemd/user
+# cp newscrux.service ~/.config/systemd/user/
+# # Gerekirse %h/newscrux-custom yolunu düzenleyin; --lang eklemeyin
+
+# 3. Etkinleştir ve başlat
 systemctl --user daemon-reload
 systemctl --user enable newscrux
 systemctl --user start newscrux
 
+# SSH kapalıyken de çalışsın (install-systemd.sh bunu otomatik yapar)
+loginctl enable-linger "$(whoami)"
+
 # 4. Canlı log
 journalctl --user -u newscrux -f
-# veya dosya logu: tail -f ~/newscrux-custom/data/service.log
+tail -f ~/newscrux-custom/data/service.log
 ```
 
-Servis dosyası `%h/newscrux-custom` yolunu kullanır; farklı dizine klonladıysanız `newscrux.service` ve `scripts/install-systemd.sh` içinde güncelleyin.
+Servis dosyası `%h/newscrux-custom` yolunu kullanır; farklı dizine klonladıysanız `newscrux.service` içindeki `WorkingDirectory` ve `ExecStart` yollarını güncelleyin.
+
+**Kurulum doğrulama:**
+
+```bash
+systemctl --user is-active newscrux
+node dist/index.js --help
+grep -E '^SCHEDULE_' .env    # SCHEDULE_TIMEZONE=Europe/Istanbul, SCHEDULE_HOURS=12,20
+```
 
 ### Uzak makineden deploy (SSH)
 
@@ -279,7 +347,7 @@ Servis dosyası `%h/newscrux-custom` yolunu kullanır; farklı dizine klonladıy
 ./scripts/deploy-to-pi.sh pi@raspberrypi.local
 ```
 
-Hedef kullanıcı ve host'u argüman olarak verin; script varsayılan IP veya kişisel yol içermez.
+Script: `git pull`, `npm install`, `npm run build`, systemd yeniden yükleme ve servisi yeniden başlatır. Hedef kullanıcı ve host'u argüman olarak verin.
 
 ---
 
@@ -299,13 +367,15 @@ Hedef kullanıcı ve host'u argüman olarak verin; script varsayılan IP veya ki
 
 ## Dokümantasyon
 
-| Dosya | Açıklama |
-|-------|----------|
-| [CONFIGURATION.md](CONFIGURATION.md) | Komut adları, saatler, 3D, `.env` |
+
+| Dosya                                                                            | Açıklama                                        |
+| -------------------------------------------------------------------------------- | ----------------------------------------------- |
+| [CONFIGURATION.md](CONFIGURATION.md)                                             | Komut adları, saatler, 3D, `.env`               |
 | [docs/UPSTREAM-KARSILASTIRMA-RAPORU.txt](docs/UPSTREAM-KARSILASTIRMA-RAPORU.txt) | Orijinal vs custom — tam kıyaslama analizi (TR) |
-| [docs/README.txt](docs/README.txt) | `docs/` klasörü açıklaması |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Katkı rehberi |
-| [NOTICE](NOTICE) | Fork atıfı ve telif notu |
+| [docs/README.txt](docs/README.txt)                                               | `docs/` klasörü açıklaması                      |
+| [CONTRIBUTING.md](CONTRIBUTING.md)                                               | Katkı rehberi                                   |
+| [NOTICE](NOTICE)                                                                 | Fork atıfı ve telif notu                        |
+
 
 `personal/` klasörü **GitHub'a gitmez** (`.gitignore`) — yalnızca yerel güvenlik notları.
 
@@ -332,106 +402,9 @@ npm run test:security
 
 ## Upstream, Yazar ve Lisans
 
-| Proje | GitHub | Yazar |
-|-------|--------|-------|
-| **newscrux** (orijinal) | [alicankiraz1/newscrux](https://github.com/alicankiraz1/newscrux) | [Alican Kiraz](https://github.com/alicankiraz1) |
-| **newscrux-custom** (bu fork) | [faruk3d8/newscrux-custom](https://github.com/faruk3d8/newscrux-custom) | [faruk3d8](https://github.com/faruk3d8) |
+**newscrux-custom**, Pushover yerine Telegram, bot zamanlaması, 3D konusunda arama katmanı ve operasyon araçları ekleyen bir fork'tur. Orijinal MIT lisansı geçerlidir — ayrıntılar [LICENSE](LICENSE) ve [NOTICE](NOTICE).
 
-**newscrux-custom**, Pushover yerine Telegram, bot zamanlaması, 3D katman ve operasyon araçları ekleyen bir fork'tur. Orijinal MIT lisansı geçerlidir — ayrıntılar [LICENSE](LICENSE) ve [NOTICE](NOTICE).
+sosyal medya hesapları.
 
 ---
 
-## GitHub'a Yükleme
-
-Depo henüz GitHub'da yoksa veya sadece upstream'e bağlıysa aşağıdaki adımları izleyin.
-
-### 1. GitHub'da boş depo oluşturun
-
-1. [https://github.com/new](https://github.com/new) adresine gidin.
-2. **Repository name:** `newscrux-custom`
-3. **Public** seçin.
-4. README, `.gitignore` veya lisans **eklemeyin** (zaten projede var).
-5. **Create repository** ile oluşturun.
-
-### 2. Yerel repoda remote ayarlayın
-
-Proje klasöründe (`newscrux-custom`):
-
-```bash
-cd ~/Projects/newscrux-custom   # kendi yolunuz
-
-# Upstream'i koruyun (orijinal newscrux)
-git remote rename origin upstream 2>/dev/null || true
-git remote add upstream https://github.com/alicankiraz1/newscrux.git 2>/dev/null || true
-
-# Kendi fork'unuz
-git remote add origin https://github.com/faruk3d8/newscrux-custom.git
-# Zaten origin varsa ve upstream değilse:
-# git remote set-url origin https://github.com/faruk3d8/newscrux-custom.git
-
-git remote -v
-```
-
-Beklenen çıktı örneği:
-
-```
-origin    https://github.com/faruk3d8/newscrux-custom.git (fetch/push)
-upstream  https://github.com/alicankiraz1/newscrux.git (fetch/push)
-```
-
-### 3. Commit edilmemesi gerekenler
-
-Push öncesi kontrol:
-
-```bash
-git status
-```
-
-Şunlar **listedeki olmamalı** (`.gitignore` kapsar):
-
-- `.env` (API anahtarları)
-- `data/` (kuyruk, log, control state)
-- `personal/`
-- `node_modules/`
-- `dist/` (build çıktısı)
-
-`.env` yanlışlıkla staged ise: `git reset HEAD .env`
-
-### 4. İlk commit ve push
-
-```bash
-git add -A
-git status   # son bir kez .env / data kontrolü
-
-git commit -m "feat: Telegram fork, docs, and public release prep for faruk3d8/newscrux-custom"
-
-git branch -M main
-git push -u origin main
-```
-
-GitHub kimlik doğrulaması: SSH kullanıyorsanız remote URL `git@github.com:faruk3d8/newscrux-custom.git` olabilir.
-
-### 5. Sonraki güncellemeler
-
-```bash
-git add .
-git commit -m "açıklayıcı mesaj"
-git push
-```
-
-Upstream'den güncelleme almak (isteğe bağlı):
-
-```bash
-git fetch upstream
-git merge upstream/main   # veya rebase
-```
-
-### 6. Depo ayarları (öneri)
-
-GitHub repo **About** kısmına kısa açıklama: *Telegram bot + AI news digest fork of newscrux*
-
-**Topics:** `telegram-bot`, `rss`, `openrouter`, `typescript`, `raspberry-pi`
-
-**Website:** README'deki upstream linki veya kendi sayfanız.
-
-Push tamamlandığında depo adresi: **https://github.com/faruk3d8/newscrux-custom**

@@ -1,26 +1,70 @@
-// src/budget-guard.ts — 3D katmanı aylık tahmini LLM maliyeti
+// src/budget-guard.ts — Aylık tahmini LLM maliyeti (tüm aramalar); yalnızca uyarı, asla engellemez
 
-import { readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { config } from './config.js';
+import fs from 'node:fs';
+import path from 'node:path';
 import { createLogger } from './logger.js';
+import { getBotMessages } from './bot-i18n.js';
+import type { BotLocale } from './bot-i18n.js';
+import { sendNotification } from './telegram.js';
+import { getBotLocale } from './control-state.js';
 import {
   THREED_COST_PER_1M_COMPLETION,
   THREED_COST_PER_1M_PROMPT,
   THREED_MONTHLY_BUDGET_USD,
   THREED_MONTHLY_TARGET_USD,
 } from './threed.config.js';
-import type { TokenUsageRecord } from './token-usage.js';
-import { getBotLocale } from './control-state.js';
-import { getBotMessages, type BotLocale } from './bot-i18n.js';
 
-const log = createLogger('budget-3d');
+const log = createLogger('budget');
 
-const TOKEN_LOG_FILE = join(config.dataDir, 'token-usage.jsonl');
+const USAGE_FILE = path.join(process.cwd(), 'data', 'token-usage.jsonl');
+const NOTIFY_STATE_FILE = path.join(process.cwd(), 'data', 'budget-notify-state.json');
 
-function monthKey(ts: number): string {
+interface UsageRecord {
+  /** Milliseconds since epoch (token-usage.jsonl) or legacy ISO string */
+  ts: number | string;
+  promptTokens: number;
+  completionTokens: number;
+  detail?: string;
+}
+
+function recordMonthKey(ts: number | string): string {
+  if (typeof ts === 'number') {
+    const d = new Date(ts);
+    if (Number.isNaN(d.getTime())) return '';
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+    return `${y}-${m}`;
+  }
+  if (/^\d{4}-\d{2}/.test(ts)) return ts.slice(0, 7);
   const d = new Date(ts);
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+  if (Number.isNaN(d.getTime())) return '';
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+}
+
+export interface MonthlyBudgetStatus {
+  month: string;
+  estimatedUsd: number;
+  budgetUsd: number;
+  targetUsd: number;
+  /** true when spend >= budget (informational only — polls are never blocked) */
+  atOrOverBudget: boolean;
+  nearTarget: boolean;
+}
+
+function readUsageRecords(): UsageRecord[] {
+  if (!fs.existsSync(USAGE_FILE)) return [];
+  const lines = fs.readFileSync(USAGE_FILE, 'utf8').split('\n').filter(Boolean);
+  const out: UsageRecord[] = [];
+  for (const line of lines) {
+    try {
+      out.push(JSON.parse(line) as UsageRecord);
+    } catch {
+      // skip bad lines
+    }
+  }
+  return out;
 }
 
 function estimateUsd(promptTokens: number, completionTokens: number): number {
@@ -30,87 +74,103 @@ function estimateUsd(promptTokens: number, completionTokens: number): number {
   );
 }
 
-function isThreeDRecord(record: TokenUsageRecord): boolean {
-  return record.detail?.includes('layer=3d') === true;
+function currentMonthKey(): string {
+  const now = new Date();
+  const y = now.getUTCFullYear();
+  const m = String(now.getUTCMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
 }
 
-export interface ThreeDBudgetStatus {
-  month: string;
-  estimatedUsd: number;
-  promptTokens: number;
-  completionTokens: number;
-  callCount: number;
-  budgetUsd: number;
-  targetUsd: number;
-  blocked: boolean;
-  nearTarget: boolean;
-}
+export function getMonthlyLlmSpend(): MonthlyBudgetStatus {
+  const month = currentMonthKey();
+  const records = readUsageRecords().filter((r) => recordMonthKey(r.ts) === month);
 
-export function getThreeDMonthlySpend(): ThreeDBudgetStatus {
-  const now = Date.now();
-  const month = monthKey(now);
   let promptTokens = 0;
   let completionTokens = 0;
-  let callCount = 0;
-
-  if (existsSync(TOKEN_LOG_FILE)) {
-    try {
-      const lines = readFileSync(TOKEN_LOG_FILE, 'utf-8').split('\n').filter(Boolean);
-      for (const line of lines) {
-        const record = JSON.parse(line) as TokenUsageRecord;
-        if (monthKey(record.ts) !== month) continue;
-        if (!isThreeDRecord(record)) continue;
-        promptTokens += record.promptTokens;
-        completionTokens += record.completionTokens;
-        callCount += 1;
-      }
-    } catch (err) {
-      log.warn(`Failed to read token log: ${err instanceof Error ? err.message : String(err)}`);
-    }
+  for (const r of records) {
+    promptTokens += r.promptTokens;
+    completionTokens += r.completionTokens;
   }
 
   const estimatedUsd = estimateUsd(promptTokens, completionTokens);
-  const blocked = estimatedUsd >= THREED_MONTHLY_BUDGET_USD;
-  const nearTarget = estimatedUsd >= THREED_MONTHLY_TARGET_USD;
+  const atOrOverBudget = estimatedUsd >= THREED_MONTHLY_BUDGET_USD;
+  const nearTarget =
+    !atOrOverBudget && estimatedUsd >= THREED_MONTHLY_TARGET_USD * 0.85;
 
   return {
     month,
     estimatedUsd,
-    promptTokens,
-    completionTokens,
-    callCount,
     budgetUsd: THREED_MONTHLY_BUDGET_USD,
     targetUsd: THREED_MONTHLY_TARGET_USD,
-    blocked,
+    atOrOverBudget,
     nearTarget,
   };
 }
 
-/** 3D LLM adımı öncesi — limit aşıldıysa false */
-export function assertThreeDBudgetAvailable(): boolean {
-  const status = getThreeDMonthlySpend();
-  if (status.blocked) {
-    log.warn(
-      `3D monthly budget exceeded: $${status.estimatedUsd.toFixed(4)} >= $${status.budgetUsd.toFixed(2)} — skipping LLM`,
-    );
-    return false;
-  }
-  if (status.nearTarget) {
-    log.info(
-      `3D monthly spend near target: $${status.estimatedUsd.toFixed(4)} (target $${status.targetUsd})`,
-    );
-  }
-  return true;
+/** @deprecated Use getMonthlyLlmSpend — kept for call-site compatibility */
+export function getThreeDMonthlySpend(): MonthlyBudgetStatus {
+  return getMonthlyLlmSpend();
 }
 
-export function formatThreeDBudgetLine(locale?: BotLocale): string {
-  const loc = locale ?? getBotLocale();
-  const msg = getBotMessages(loc);
-  const s = getThreeDMonthlySpend();
-  const suffix = s.blocked
+interface BudgetNotifyState {
+  month: string;
+  notifiedAt: string;
+}
+
+function readNotifyState(): BudgetNotifyState | null {
+  if (!fs.existsSync(NOTIFY_STATE_FILE)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(NOTIFY_STATE_FILE, 'utf8')) as BudgetNotifyState;
+  } catch {
+    return null;
+  }
+}
+
+function writeNotifyState(state: BudgetNotifyState): void {
+  const dir = path.dirname(NOTIFY_STATE_FILE);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(NOTIFY_STATE_FILE, JSON.stringify(state, null, 2), 'utf8');
+}
+
+/**
+ * Aylık bütçe limitine ulaşıldığında Telegram uyarısı gönderir (ayda bir kez).
+ * Aramaları durdurmaz; kullanıcı data/control-state.json ile paused=true yapabilir.
+ */
+export async function maybeNotifyMonthlyBudgetLimit(): Promise<void> {
+  const status = getMonthlyLlmSpend();
+  if (!status.atOrOverBudget) return;
+
+  const prev = readNotifyState();
+  if (prev?.month === status.month) return;
+
+  const locale = getBotLocale();
+  const msg = getBotMessages(locale);
+  const cap = status.budgetUsd.toFixed(2);
+  const spent = status.estimatedUsd.toFixed(3);
+  const title = msg.monthlyBudgetAlertTitle;
+  const body = msg.monthlyBudgetAlertBody(cap, spent);
+
+  const sent = await sendNotification(title, body);
+  if (sent) {
+    writeNotifyState({ month: status.month, notifiedAt: new Date().toISOString() });
+    log.info(
+      `Monthly budget alert sent: $${spent} >= $${cap} (${status.month}) — polls continue unless paused`,
+    );
+  } else {
+    log.warn('Monthly budget alert could not be sent (Telegram)');
+  }
+}
+
+export function formatMonthlyBudgetLine(locale?: BotLocale): string {
+  const msg = getBotMessages(locale ?? getBotLocale());
+  const s = getMonthlyLlmSpend();
+  const suffix = s.atOrOverBudget
     ? msg.budgetLimitReached
     : s.nearTarget
       ? msg.budgetNearTarget
       : '';
   return msg.budgetLine(s.month, s.estimatedUsd.toFixed(3), s.budgetUsd.toFixed(2), suffix);
 }
+
+/** @deprecated Use formatMonthlyBudgetLine */
+export const formatThreeDBudgetLine = formatMonthlyBudgetLine;

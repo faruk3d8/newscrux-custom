@@ -27,6 +27,13 @@ function envProfile(name: string, fallback: FeedProfile): FeedProfile {
   return raw === 'minimal' ? 'minimal' : 'full';
 }
 
+/** User-facing product name for this custom fork (logs, Telegram, CLI). */
+export const APP_DISPLAY_NAME = 'Newscrux-Custom';
+
+/** Upstream open-source project (shown in /status footer). */
+export const UPSTREAM_PROJECT_URL = 'https://github.com/alicankiraz1/newscrux';
+export const UPSTREAM_PROJECT_LINK_LABEL = 'newscrux';
+
 export const config = {
   openrouterApiKey: process.env.OPENROUTER_API_KEY ?? '',
   openrouterModel: process.env.OPENROUTER_MODEL ?? 'deepseek/deepseek-v3.2-speciale',
@@ -67,14 +74,14 @@ export const config = {
   scrapingTimeoutMs: envInt('SCRAPE_TIMEOUT_MS', 10_000, 1000, 60_000),
   maxContentLength: 8000,
   maxScrapePerPoll: 10,
-  userAgent: 'Newscrux-Custom/2.0 (AI News Aggregator)',
+  userAgent: `${APP_DISPLAY_NAME}/2.0 (AI News Aggregator)`,
   logLevel: (process.env.LOG_LEVEL ?? 'info') as 'debug' | 'info' | 'warn' | 'error',
   snippetMinLength: 300,
   enrichedContentMaxLength: 3000,
 };
 
 export const runtimeConfig = {
-  language: 'tr' as SupportedLanguage,
+  language: 'en' as SupportedLanguage,
 };
 
 export function getEffectivePollLimits(options: PollRunOptions = {}): EffectivePollLimits {

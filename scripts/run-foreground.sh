@@ -21,4 +21,4 @@ if [[ -f .env ]]; then
   set -a && source .env && set +a
 fi
 
-exec node dist/index.js --lang=tr 2>&1 | tee -a data/foreground.log
+exec node dist/index.js --lang=en 2>&1 | tee -a data/foreground.log

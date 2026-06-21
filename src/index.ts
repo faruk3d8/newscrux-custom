@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // src/index.ts
-import { config, getEffectivePollLimits, validateConfig } from './config.js';
+import { APP_DISPLAY_NAME, config, getEffectivePollLimits, validateConfig } from './config.js';
 import { createLogger } from './logger.js';
 import { fetchAllArticles, getActiveFeedCount } from './feeds.js';
 import { filterByRelevance } from './relevance.js';
@@ -22,10 +22,26 @@ import { sendNotification, sendArticleNotification, escapeHtml, TELEGRAM_SAFE_ME
 import { parseArgs } from './cli.js';
 import { getLanguagePack } from './i18n.js';
 import { startScheduledPolls, getNextScheduledRunAt, formatScheduledTime } from './scheduler.js';
-import { startTelegramBotListener } from './telegram-bot.js';
+import { startTelegramBotListener, formatStartupNotificationBody } from './telegram-bot.js';
 import { registerPollHandler, registerPoll3DHandler } from './poll-coordinator.js';
-import { isPaused, getContentLanguage, applyStartupLanguage } from './control-state.js';
-import { SCHEDULE_TIMEZONE, SCHEDULE_HOURS, BOT_COMMANDS } from './telegram-commands.config.js';
+import {
+  isPaused,
+  getContentLanguage,
+  getBotLocale,
+  applyStartupLanguage,
+  applyStartupThreeDNews,
+  isThreeDNewsEnabled,
+  getScheduleMode,
+  getPollIntervalMinutes,
+  ensureDefaultControlStateFile,
+  reloadControlStateFromDisk,
+} from './control-state.js';
+import {
+  SCHEDULE_TIMEZONE,
+  SCHEDULE_HOURS,
+  BOT_COMMANDS,
+  applyStartupScheduleOverrides,
+} from './telegram-commands.config.js';
 import { THREED_BOT_COMMANDS } from './threed.config.js';
 import { pollThreeDAndNotify } from './poll-3d.js';
 import type { PollMetrics } from './types.js';
@@ -365,13 +381,23 @@ function logStartupFailure(message: string, err?: unknown): void {
 }
 
 async function main(): Promise<void> {
-  const { lang, langExplicit } = parseArgs();
-  if (langExplicit) {
-    applyStartupLanguage(lang);
+  const args = parseArgs();
+  ensureDefaultControlStateFile();
+  if (args.langExplicit) {
+    applyStartupLanguage(args.lang);
+  }
+  if (args.scheduleTimezoneExplicit || args.scheduleHoursExplicit) {
+    applyStartupScheduleOverrides({
+      ...(args.scheduleTimezoneExplicit ? { timezone: args.scheduleTimezone } : {}),
+      ...(args.scheduleHoursExplicit ? { hours: args.scheduleHours } : {}),
+    });
+  }
+  if (args.threeDNewsExplicit && args.threeDNewsEnabled !== undefined) {
+    applyStartupThreeDNews(args.threeDNewsEnabled);
   }
 
   const pack = getLanguagePack(getContentLanguage());
-  log.info(`Newscrux ${formatBuildInfoLine()} starting... (language: ${pack.name})`);
+  log.info(`${APP_DISPLAY_NAME} ${formatBuildInfoLine()} starting... (language: ${pack.name})`);
   log.info(`cwd=${process.cwd()} node=${process.version}`);
 
   try {
@@ -385,9 +411,13 @@ async function main(): Promise<void> {
 
   setupShutdown();
 
+  reloadControlStateFromDisk();
+
   if (config.startupNotify) {
-    const startupBody = `${pack.labels.startupMessage}\n\n${formatBuildInfoLine()}`;
-    const startupSent = await sendNotification('📡 Newscrux', startupBody);
+    const locale = getBotLocale();
+    const { labels } = getLanguagePack(locale);
+    const startupBody = formatStartupNotificationBody(labels.startupMessage, locale);
+    const startupSent = await sendNotification(`📡 ${APP_DISPLAY_NAME}`, startupBody);
     if (startupSent) {
       log.info('Startup notification sent');
     } else {
@@ -406,11 +436,23 @@ async function main(): Promise<void> {
     .map((c) => `/${c}`)
     .join(', ');
   log.info(`Bot commands: ${commands}; 3D: ${threeD}`);
-  log.info(
-    `Schedule: ${SCHEDULE_HOURS.join(' & ')} (${SCHEDULE_TIMEZONE})` +
-      (isPaused() ? ' — PAUSED' : ''),
-  );
+  const scheduleMode = getScheduleMode();
+  if (scheduleMode === 'interval') {
+    const mins = getPollIntervalMinutes() ?? 15;
+    log.info(
+      `Schedule: every ${mins} min (interval mode, data/control-state.json)` +
+        (isPaused() ? ' — PAUSED' : ''),
+    );
+  } else {
+    log.info(
+      `Schedule: ${SCHEDULE_HOURS.join(' & ')} (${SCHEDULE_TIMEZONE}, hours mode)` +
+        (isPaused() ? ' — PAUSED' : ''),
+    );
+  }
   log.info(`Feed profile: ${config.feedProfile} (${getActiveFeedCount()} feeds)`);
+  log.info(
+    `3D AI news layer: ${isThreeDNewsEnabled() ? 'enabled' : 'disabled (optional — use --3d-on or /3dainewsopen)'}`,
+  );
 
   try {
     const next = getNextScheduledRunAt(SCHEDULE_TIMEZONE, SCHEDULE_HOURS);

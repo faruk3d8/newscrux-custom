@@ -1,6 +1,12 @@
 // src/scheduler.ts
 import { createLogger } from './logger.js';
-import { isPaused, isThreeDNewsEnabled } from './control-state.js';
+import {
+  isPaused,
+  isThreeDNewsEnabled,
+  reloadControlStateFromDisk,
+  getScheduleMode,
+  getPollIntervalMinutes,
+} from './control-state.js';
 import { runPollSafely } from './poll-coordinator.js';
 import { SCHEDULE_TIMEZONE, SCHEDULE_HOURS } from './telegram-commands.config.js';
 import { THREED_SCHEDULE_HOUR } from './threed.config.js';
@@ -68,6 +74,15 @@ export function getNextScheduledRunAt(
   timeZone: string = SCHEDULE_TIMEZONE,
   hours: readonly number[] = SCHEDULE_HOURS,
 ): Date {
+  reloadControlStateFromDisk();
+  const mode = getScheduleMode();
+  if (mode === 'interval') {
+    const mins = getPollIntervalMinutes();
+    if (mins) {
+      return new Date(Date.now() + mins * 60_000);
+    }
+  }
+
   const now = Date.now();
   const sorted = [...hours].sort((a, b) => a - b);
 
@@ -94,11 +109,45 @@ export function formatScheduledTime(date: Date, timeZone: string = SCHEDULE_TIME
   }).format(date);
 }
 
+async function executeScheduledPollCycle(): Promise<void> {
+  const timeZone = SCHEDULE_TIMEZONE;
+  const runHour = getZonedParts(new Date(), timeZone).hour;
+
+  if (isPaused()) {
+    log.info('Scheduled poll skipped — system is paused (edit data/control-state.json or use bot resume)');
+    return;
+  }
+
+  await runPollSafely({ manual: false });
+
+  if (runHour === THREED_SCHEDULE_HOUR && isThreeDNewsEnabled()) {
+    log.info('Running scheduled 3D news layer after general poll');
+    await runPollSafely({ manual: false, layer: '3d' });
+  }
+}
+
 export function startScheduledPolls(): void {
   const timeZone = SCHEDULE_TIMEZONE;
   const hours = SCHEDULE_HOURS;
 
   const scheduleNext = (): void => {
+    reloadControlStateFromDisk();
+
+    const mode = getScheduleMode();
+    const intervalMins = getPollIntervalMinutes();
+
+    if (mode === 'interval' && intervalMins) {
+      const delayMs = intervalMins * 60_000;
+      log.info(
+        `Next interval poll in ${intervalMins} min (${formatScheduledTime(new Date(Date.now() + delayMs), timeZone)})`,
+      );
+      setTimeout(async () => {
+        await executeScheduledPollCycle();
+        scheduleNext();
+      }, delayMs);
+      return;
+    }
+
     let next: Date;
     try {
       next = getNextScheduledRunAt(timeZone, hours);
@@ -114,17 +163,7 @@ export function startScheduledPolls(): void {
     );
 
     setTimeout(async () => {
-      const runHour = getZonedParts(new Date(), timeZone).hour;
-
-      if (isPaused()) {
-        log.info('Scheduled poll skipped — system is paused (use bot start command)');
-      } else {
-        await runPollSafely({ manual: false });
-        if (runHour === THREED_SCHEDULE_HOUR && isThreeDNewsEnabled()) {
-          log.info('Running scheduled 3D news layer after general poll');
-          await runPollSafely({ manual: false, layer: '3d' });
-        }
-      }
+      await executeScheduledPollCycle();
       scheduleNext();
     }, delayMs);
   };

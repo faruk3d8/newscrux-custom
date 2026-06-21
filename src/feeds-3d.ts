@@ -18,7 +18,7 @@ const log = createLogger('feeds-3d');
 
 const parser = new Parser({
   timeout: 15_000,
-  headers: { 'User-Agent': 'Newscrux/2.0 (3D news aggregator)' },
+  headers: { 'User-Agent': `${config.userAgent.split(' (')[0]} (3D news aggregator)` },
 });
 
 function hashString(str: string): string {

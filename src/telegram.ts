@@ -1,7 +1,9 @@
 // src/telegram.ts
 import { config } from './config.js';
+import { UPSTREAM_PROJECT_LINK_LABEL, UPSTREAM_PROJECT_URL } from './config.js';
 import { createLogger } from './logger.js';
 import { getContentLanguage } from './control-state.js';
+import { getBotMessages, type BotLocale } from './bot-i18n.js';
 import { getLanguagePack } from './i18n.js';
 import type { QueueEntry, StructuredSummary } from './types.js';
 
@@ -17,6 +19,23 @@ export function escapeHtml(text: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+/** Clickable short link to the upstream newscrux repo (Telegram HTML). */
+export function formatUpstreamProjectLink(): string {
+  return `<a href="${escapeHtml(UPSTREAM_PROJECT_URL)}">${escapeHtml(UPSTREAM_PROJECT_LINK_LABEL)}</a>`;
+}
+
+/** Localized upstream credit for /status, e.g. "Ana kaynak: newscrux" (link). */
+export function formatUpstreamSourceLine(locale: BotLocale): string {
+  const label = getBotMessages(locale).upstreamSourceLabel;
+  return `${escapeHtml(label)}: ${formatUpstreamProjectLink()}`;
+}
+
+/** Localized upstream credit as plain text (no link preview card). */
+export function formatUpstreamSourcePlainLine(locale: BotLocale): string {
+  const label = getBotMessages(locale).upstreamSourceLabel;
+  return `${escapeHtml(label)}: ${escapeHtml(UPSTREAM_PROJECT_LINK_LABEL)}`;
 }
 
 function trimToSentenceBoundary(text: string, maxLength: number): string {
@@ -107,7 +126,24 @@ function buildTelegramText(title: string, message: string, url?: string, urlLabe
   return text.slice(0, TELEGRAM_MAX_MESSAGE);
 }
 
-export async function sendChatMessage(chatId: string, text: string): Promise<boolean> {
+export interface TelegramInlineKeyboardButton {
+  text: string;
+  callback_data: string;
+}
+
+export interface TelegramInlineKeyboardMarkup {
+  inline_keyboard: TelegramInlineKeyboardButton[][];
+}
+
+export interface SendChatMessageOptions {
+  reply_markup?: TelegramInlineKeyboardMarkup;
+}
+
+export async function sendChatMessage(
+  chatId: string,
+  text: string,
+  options: SendChatMessageOptions = {},
+): Promise<boolean> {
   try {
     const apiUrl = `https://api.telegram.org/bot${config.telegramBotToken}/sendMessage`;
 
@@ -119,6 +155,7 @@ export async function sendChatMessage(chatId: string, text: string): Promise<boo
         text: text.slice(0, TELEGRAM_MAX_MESSAGE),
         parse_mode: 'HTML',
         disable_web_page_preview: true,
+        ...(options.reply_markup ? { reply_markup: options.reply_markup } : {}),
       }),
     });
 
@@ -183,6 +220,72 @@ export async function sendArticleNotification(
 
   const success = await sendNotification(title, message, entry.link, urlTitle);
   return { success, truncated };
+}
+
+export async function answerCallbackQuery(
+  callbackQueryId: string,
+  options: { text?: string; show_alert?: boolean } = {},
+): Promise<boolean> {
+  try {
+    const apiUrl = `https://api.telegram.org/bot${config.telegramBotToken}/answerCallbackQuery`;
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        callback_query_id: callbackQueryId,
+        ...(options.text ? { text: options.text.slice(0, 200) } : {}),
+        ...(options.show_alert ? { show_alert: true } : {}),
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      log.error(`Telegram answerCallbackQuery error (${response.status}): ${body}`);
+      return false;
+    }
+
+    const payload = (await response.json()) as { ok?: boolean };
+    return payload.ok === true;
+  } catch (err) {
+    log.error('Failed to answer Telegram callback query', err);
+    return false;
+  }
+}
+
+export async function editMessageText(
+  chatId: string,
+  messageId: number,
+  text: string,
+  options: SendChatMessageOptions = {},
+): Promise<boolean> {
+  try {
+    const apiUrl = `https://api.telegram.org/bot${config.telegramBotToken}/editMessageText`;
+
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        message_id: messageId,
+        text: text.slice(0, TELEGRAM_MAX_MESSAGE),
+        parse_mode: 'HTML',
+        disable_web_page_preview: true,
+        ...(options.reply_markup ? { reply_markup: options.reply_markup } : {}),
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      log.error(`Telegram editMessageText error (${response.status}): ${body}`);
+      return false;
+    }
+
+    const payload = (await response.json()) as { ok?: boolean };
+    return payload.ok === true;
+  } catch (err) {
+    log.error('Failed to edit Telegram message', err);
+    return false;
+  }
 }
 
 export { TELEGRAM_SAFE_MESSAGE };
