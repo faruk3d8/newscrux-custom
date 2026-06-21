@@ -106,15 +106,13 @@ Yeni npm paketi eklenmemiştir.
   src/poll-3d.ts                (~270) 3D poll pipeline
   src/build-info.ts             Build zamanı/commit (generate-build-info.mjs ile)
 
-3.4 Yeni scripts/
+3.4 scripts/ (Node only; public repo)
 ------------------
-  scripts/install-systemd.sh      Pi user systemd kurulumu + linger
-  scripts/deploy-to-pi.sh         Mac → Pi rsync + build + restart
-  scripts/diagnose-telegram.sh    Telegram bağlantı teşhisi
   scripts/generate-build-info.mjs build öncesi build-info üretimi
-  scripts/pi-enable-file-logging.sh  Journal yerine dosya logu
-  scripts/run-foreground.sh       Geliştirme/ debug ön planda çalıştırma
   scripts/test-url-security.mjs   SSRF testleri (npm run test:security)
+
+  Not: Pi deploy/teşhis için eski .sh scriptleri public repodan kaldırıldı;
+  kurulum README'deki manuel systemd adımları ile yapılır (upstream ile aynı model).
 
 3.5 Kök dosya değişiklikleri
 ------------------------------
@@ -262,8 +260,7 @@ Not (pollfast): Kod tabanında fastMode hâlâ desteklenir (config, poll-coordin
   ancak ayrı /pollfast bot komutu kaldırılmıştır; manuel tetikleme /pollnow ile yapılır.
 
 Not (poll3d): threed.config.ts içinde poll3d tanımı kalabilir; telegram-bot.ts'te
-  handler yok. scripts/diagnose-telegram.sh ve deploy-to-pi.sh hâlâ /poll3d arar — güncel
-  kodla uyumsuz (Bölüm 19).
+  handler yok. Eski teşhis scriptleri kaldırıldı (Bölüm 19).
 
 Rate limit: COMMAND_RATE_LIMIT_PER_MINUTE (varsayılan 10/dk per chat)
 
@@ -350,7 +347,7 @@ systemd (newscrux.service):
   - NoNewPrivileges=true
   - ProtectSystem=full, ProtectHome=read-only
   - ReadWritePaths yalnızca ~/newscrux/data
-  - .env chmod 600 (install-systemd.sh)
+  - .env chmod 600 (README kurulum adımı)
 
 
 ================================================================================
@@ -390,15 +387,11 @@ Fork newscrux.service:
   - WantedBy=default.target
   - ExecStartPre: mkdir data
   - StandardOutput/Error=append:~/newscrux/data/service.log
-  - loginctl enable-linger — SSH/oturum kapalıyken çalışma
+  - loginctl enable-linger — SSH/oturum kapalıyken çalışma (README'de manuel adım)
   - --lang=tr (Pi varsayılanı)
 
-install-systemd.sh:
-  - Unit kopyala, daemon-reload, enable, restart, linger
-
-deploy-to-pi.sh:
-  - rsync (node_modules, dist, .env, data hariç)
-  - ssh: npm install, npm run build, systemctl --user restart
+Kurulum: README'deki cp newscrux.service + systemctl --user komutları (upstream ile aynı).
+Güncelleme: git pull && npm install && npm run build && systemctl --user restart newscrux
 
 
 ================================================================================
@@ -470,7 +463,7 @@ Build info embed                   Hayır       Evet
   - Untracked değişiklikleri commit'leyerek git tabanını temizlemek
   - openrouter-credits.ts mesajlarını bot-i18n'e taşımak (kısmi İngilizce kaldı)
   - Pi'de: systemctl --user is-enabled newscrux && loginctl enable-linger "$(whoami)"
-  - ./scripts/deploy-to-pi.sh pi@raspberrypi.local ile dağıtım doğrulama
+  - Pi'de: git pull && npm run build && systemctl --user restart newscrux ile dağıtım doğrulama
 
 
 ================================================================================
@@ -497,8 +490,10 @@ Build info embed                   Hayır       Evet
 ------------------------------------
   Tamamlandı (2026-06-13):
     - scripts/fix-poll3d-on-pi.sh silindi (PII + obsolete)
-    - scripts/pi-enable-file-logging.sh, run-foreground.sh → ~/newscrux-custom
-    - deploy-to-pi.sh, diagnose-telegram.sh güncellendi (/poll3d kontrolleri kaldırıldı)
+
+  2026-06-21:
+    - Tüm deploy/teşhis .sh scriptleri public repodan kaldırıldı (upstream ile uyum)
+    - Kurulum README manuel systemd adımlarına taşındı
 
   GÜVENLİ / kasıtlı:
     pi@raspberrypi.local (deploy örneği)

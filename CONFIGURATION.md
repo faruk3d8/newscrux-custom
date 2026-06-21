@@ -22,7 +22,7 @@ Where to change bot command names, schedule times, feeds, limits, and languages.
 | Bot UI text (help, errors) | `src/bot-i18n.ts` | Turkish / English strings |
 | UI language commands | `src/bot-i18n.ts` | `/languages`, `/langtr`, `/langen` handlers |
 | Article summary language | CLI + runtime | `npm start -- --lang=en` (default `en`) or bot `/languages` |
-| systemd install path & default lang | `newscrux.service`, `scripts/install-systemd.sh` | Default clone dir: `~/newscrux-custom` |
+| systemd install path & default lang | `newscrux.service` | Default clone dir: `~/newscrux-custom` |
 
 After editing TypeScript config files, run `npm run build` and restart the service.
 
@@ -188,10 +188,18 @@ Example template: `data/control-state.example.json`.
 |------|----------------|
 | Clone directory | `~/newscrux-custom` |
 | systemd unit | `newscrux.service` → `%h/newscrux-custom` |
-| Install script | `scripts/install-systemd.sh` (`REPO_DIR`) |
-| Remote sync | `./scripts/deploy-to-pi.sh user@host` (no default host) |
 
-Change paths consistently in all four places if you use a different directory name.
+Copy the unit file manually:
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp newscrux.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now newscrux
+loginctl enable-linger "$(whoami)"
+```
+
+Change paths consistently in `newscrux.service` if you use a different directory name.
 
 ---
 

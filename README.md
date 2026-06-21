@@ -193,8 +193,6 @@ ssh pi@raspberrypi.local 'journalctl --user -u newscrux -n 50 --no-pager'
 ssh pi@raspberrypi.local 'tail -f ~/newscrux-custom/data/service.log'
 ```
 
-Deploy script ile tek komutta: `./scripts/deploy-to-pi.sh pi@raspberrypi.local`
-
 ### Ortam değişkenleri (`.env`)
 
 
@@ -294,7 +292,7 @@ Kaynak eklemek veya çıkarmak: `src/threed.config.ts` (`THREED_RSS_FEEDS`, `THR
 
 ## Dağıtım
 
-Raspberry Pi veya herhangi bir Linux sunucusunda **kullanıcı düzeyi systemd** ile çalışır (root gerekmez). Upstream [newscrux README](https://github.com/alicankiraz1/newscrux#deployment) ile aynı model: birim dosyası `~/.config/systemd/user/`, `systemctl --user enable/start`, `journalctl --user -f`. Bu fork ek olarak `install-systemd.sh`, `deploy-to-pi.sh`, dosya logu (`data/service.log`) ve `loginctl enable-linger` kullanır — SSH oturumu kapalıyken de servis ayakta kalır.
+Raspberry Pi veya herhangi bir Linux sunucusunda **kullanıcı düzeyi systemd** ile çalışır (root gerekmez). Upstream [newscrux README](https://github.com/alicankiraz1/newscrux#deployment) ile aynı model: birim dosyası `~/.config/systemd/user/`, `systemctl --user enable/start`, `journalctl --user -f`. Bu fork ek olarak `data/service.log` dosya logu ve `loginctl enable-linger` kullanır — SSH oturumu kapalıyken de servis ayakta kalır.
 
 **İlk kurulum varsayılanları:** özet dili **İngilizce (`en`)**, zamanlama **Europe/Istanbul** saatiyle **12:00** ve **20:00** (`.env` veya `SCHEDULE_`* ile değiştirilebilir). systemd biriminde `--lang=…` kullanmayın; dil `data/control-state.json` içinde kalıcıdır ve her yeniden başlatmada üzerine yazılır.
 
@@ -310,20 +308,17 @@ nano .env                                       # OPENROUTER + TELEGRAM bilgiler
 chmod 600 .env
 npm run build
 
-# 2. Servisi kur (önerilen)
-./scripts/install-systemd.sh
-
-# Manuel kurulum (upstream ile aynı akış):
-# mkdir -p ~/.config/systemd/user
-# cp newscrux.service ~/.config/systemd/user/
-# # Gerekirse %h/newscrux-custom yolunu düzenleyin; --lang eklemeyin
+# 2. systemd birim dosyasını kur
+mkdir -p ~/.config/systemd/user ~/newscrux-custom/data
+cp newscrux.service ~/.config/systemd/user/
+# Gerekirse %h/newscrux-custom yolunu düzenleyin; --lang eklemeyin
 
 # 3. Etkinleştir ve başlat
 systemctl --user daemon-reload
 systemctl --user enable newscrux
 systemctl --user start newscrux
 
-# SSH kapalıyken de çalışsın (install-systemd.sh bunu otomatik yapar)
+# SSH kapalıyken de çalışsın
 loginctl enable-linger "$(whoami)"
 
 # 4. Canlı log
@@ -341,13 +336,29 @@ node dist/index.js --help
 grep -E '^SCHEDULE_' .env    # SCHEDULE_TIMEZONE=Europe/Istanbul, SCHEDULE_HOURS=12,20
 ```
 
-### Uzak makineden deploy (SSH)
+### Uzak makineden güncelleme (SSH)
+
+Pi üzerinde doğrudan:
 
 ```bash
-./scripts/deploy-to-pi.sh pi@raspberrypi.local
+ssh pi@raspberrypi.local 'cd ~/newscrux-custom && git pull && npm install && npm run build && systemctl --user restart newscrux'
 ```
 
-Script: `git pull`, `npm install`, `npm run build`, systemd yeniden yükleme ve servisi yeniden başlatır. Hedef kullanıcı ve host'u argüman olarak verin.
+Mac'ten rsync ile (`.env` ve `data/` korunur):
+
+```bash
+rsync -avz --delete \
+  --exclude node_modules --exclude dist --exclude .env --exclude data --exclude .git \
+  ./ pi@raspberrypi.local:~/newscrux-custom/
+ssh pi@raspberrypi.local 'cd ~/newscrux-custom && npm install && npm run build && systemctl --user restart newscrux'
+```
+
+Ön planda hata ayıklama:
+
+```bash
+systemctl --user stop newscrux
+cd ~/newscrux-custom && node dist/index.js --lang=en
+```
 
 ---
 
